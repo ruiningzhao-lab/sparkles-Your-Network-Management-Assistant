@@ -80,6 +80,16 @@ export function pickPeople(people: Person[], prompt: string, max = 160) {
 }
 
 const s = (x: unknown, max = 300) => String(x ?? '').slice(0, max);
+const firstName = (p: Person) => p.n.split(' ')[0];
+const lower = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
+/** "I want to get better at jazz piano" -> "jazz piano". Used when no AI is available. */
+function topicOf(prompt: string) {
+  const t = prompt
+    .trim()
+    .replace(/[?.!]+$/, '')
+    .replace(/^(i\s+want\s+to\s+(get\s+better\s+at|learn(\s+about)?|start|try|do)|who\s+could\s+help\s+me\s+(with)?|who\s+can\s+help\s+(me\s+)?(with)?|help\s+me\s+(with)?|i'?m\s+(into|interested\s+in)|anyone\s+into)\s+/i, '');
+  return t.length > 40 ? t.slice(0, 40).replace(/\s+\S*$/, '') : t || 'this';
+}
 
 /** Turn a request into a map: people with reasons, plans, and real places. */
 export async function makeMap(args: { id: string; prompt: string; people: Person[]; home: Place; circles: Circle[]; prev?: MapDoc | null; signal?: AbortSignal }): Promise<{ map: MapDoc; fallback: boolean }> {
@@ -123,13 +133,21 @@ Return JSON only, in this shape:
     const hits = cand
       .filter((p) => words.some((w) => [p.role, p.company, (p.tags || []).join(' '), p.note, p.doing, p.city].join(' ').toLowerCase().includes(w)))
       .slice(0, 8);
-    const near = hits.filter((p) => p.ck && p.ck === home.ck);
-    const plans: Plan[] = [];
-    const first = (p: Person) => p.n.split(' ')[0];
-    if (near[0]) plans.push({ id: `${id}_0`, kind: 'Meet up', ic: '☕', when: 'this week', title: `Grab coffee with ${first(near[0])}`, with: [near[0].id], why: `${first(near[0])} lives in ${home.city} and ${near[0].doing ? 'is ' + near[0].doing.charAt(0).toLowerCase() + near[0].doing.slice(1) : 'fits what you asked for'}.`, where: `A café near you in ${home.city}` });
-    hits.filter((p) => p !== near[0]).slice(0, plans.length ? 2 : 3).forEach((p) =>
-      plans.push({ id: `${id}_${plans.length}`, kind: p.ck === home.ck ? 'Meet up' : 'Message', ic: p.ck === home.ck ? '☕' : '✉', when: 'this week', title: `Ask ${first(p)} about it`, with: [p.id], why: p.doing ? `${first(p)} is ${p.doing.charAt(0).toLowerCase() + p.doing.slice(1)}.` : `${first(p)} mentions this in your notes.`, where: p.ck === home.ck ? home.city : p.city ? `Video call (${p.city})` : 'Message' }),
-    );
+    const topic = topicOf(prompt);
+    const plans: Plan[] = hits.slice(0, 3).map((p, i) => {
+      const local = !!p.ck && p.ck === home.ck;
+      return {
+        id: `${id}_${i}`,
+        kind: local ? 'Meet up' : 'Video call',
+        ic: local ? '☕' : '☎',
+        when: 'this week',
+        title: `${local ? 'Coffee' : 'Call'} with ${firstName(p)} about ${topic}`,
+        with: [p.id],
+        why: p.doing ? `${firstName(p)} is ${lower(p.doing)}.` : `${firstName(p)} mentions ${topic} in your notes.`,
+        where: local ? `A café in ${home.city}` : `Video call${p.city ? ` (${p.city} time)` : ''}`,
+        topic,
+      };
+    });
     return {
       fallback: true,
       map: {
@@ -205,7 +223,9 @@ ${withPeople.map((x) => 'About ' + x.n + ': ' + personLine(x, circles)).join('\n
     );
   } catch {
     const first = withPeople.map((x) => x.n.split(' ')[0]).join(' and ');
-    return `Hi${first ? ' ' + first : ''}! ${plan.title}${plan.when ? ', ' + plan.when.toLowerCase() : ''}? ${plan.where ? 'I was thinking ' + plan.where + '. ' : ''}Let me know what works for you.`;
+    const meet = /video|call/i.test(plan.kind + plan.where) ? 'a quick video call' : /coffee|meet/i.test(plan.kind + plan.title) ? 'a coffee' : 'catching up';
+    const about = plan.topic ? `I’ve been getting into ${plan.topic} and you came to mind. ` : '';
+    return `Hi${first ? ' ' + first : ''}! ${about}Would you be up for ${meet} ${(plan.when || 'soon').toLowerCase()}? I’d love to hear what you’ve been up to.`;
   }
 }
 

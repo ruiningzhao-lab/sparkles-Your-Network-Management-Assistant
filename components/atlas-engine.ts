@@ -5,8 +5,9 @@ import * as d3 from 'd3';
 import { feature, mesh } from 'topojson-client';
 import TOPO from 'world-atlas/countries-50m.json';
 import { CITIES, COUNTRY_NAMES, findCity, makePlace } from '@/lib/geo';
+import { icon, NAV } from './icons';
 
-type Viewer = { mode: 'local' | 'supabase'; name: string; email: string; admin: boolean };
+type Viewer = { mode: 'local' | 'supabase' | 'claude'; name: string; email: string; admin: boolean };
 
 /* ================= API ================= */
 async function call(path, method = 'GET', data?, signal?) {
@@ -28,6 +29,8 @@ export const FETCH_API = {
   draft: (mapId, planId) => call('/api/ai/draft', 'POST', { mapId, planId }),
   next: (personId) => call('/api/ai/next', 'POST', { personId }),
   geocode: (q) => call('/api/geocode', 'POST', { q }),
+  loadSample: () => call('/api/demo', 'POST'),
+  clearSample: () => call('/api/demo', 'DELETE'),
 };
 let API = FETCH_API;
 
@@ -70,7 +73,14 @@ const secOf = (x) => (Array.isArray(x) ? x : [x.h, x.ids, x.why, x.note]);
 let svg, gBase, pGrat, pLand, pBord, gStr, gMk, gYou, zoom, land, borders;
 let W = 0, H = 0, proj = d3.geoNaturalEarth1();
 const SPLIT = 3.2;
-function view() { if (mobile()) return { x0: 0, x1: W, y0: 150, y1: H * 0.54 }; return { x0: 0, x1: W - 424, y0: 120, y1: H - 150 }; }
+// The part of the screen not covered by the rail, prompt and panel, so pins never hide under them.
+function view() {
+  const top = document.querySelector('.top')?.getBoundingClientRect().bottom || 120;
+  if (mobile()) return { x0: 0, x1: W, y0: top + 12, y1: H * 0.52 - 12 };
+  const rail = document.querySelector('.rail')?.getBoundingClientRect().right || 0;
+  const pl = $('panel')?.getBoundingClientRect().left || W;
+  return { x0: rail + 8, x1: pl - 8, y0: top + 12, y1: H - 72 };
+}
 function initMap() {
   svg = d3.select('#map');
   svg.selectAll('*').remove();
@@ -175,7 +185,7 @@ function draw() {
   gStr.html(st); gMk.html(mk + labels);
   gYou.html(you ? `<g class="you" transform="translate(${you[0]},${you[1]})"><circle r="9" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/><path d="M0,-5.5l1.6,3.6 3.9,.3-3,2.5 1,3.8L0,2.1l-3.5,2.1 1-3.8-3-2.5 3.9-.3z" fill="#fff"/><text y="-14">You</text></g>` : '');
   const ppl = items.filter((p) => p.t !== 'disc'), unpl = D.people.filter((p) => !placed(p)).length;
-  $('stats').innerHTML = `<span><b>${ppl.length}</b> on the map</span><span><b>${new Set(ppl.map((p) => p.ck)).size}</b> cities</span>${unpl ? `<span><b>${unpl}</b> need a city</span>` : ''}<span><svg viewBox="0 0 22 10"><path d="M1,9Q11,-3 21,9" fill="none" stroke="var(--string)" stroke-width="1.8"/></svg>Connection to you</span>`;
+  $('stats').innerHTML = D.loaded ? `<span><b>${ppl.length}</b> on the map</span><span><b>${new Set(ppl.map((p) => p.ck)).size}</b> cities</span>${unpl ? `<button data-act="place" title="Add cities"><b>${unpl}</b> need a city</button>` : ''}<span class="opt"><svg viewBox="0 0 22 10"><path d="M1,9Q11,-3 21,9" fill="none" stroke="var(--string)" stroke-width="1.8"/></svg>Connection to you</span>` : '';
 }
 function flyLL(lat, lng, k) { const v = view(), cx = (v.x0 + v.x1) / 2, cy = (v.y0 + v.y1) / 2, [x, y] = proj([lng, lat]); svg.transition().duration(reduce ? 0 : 1600).ease(d3.easeCubicInOut).call(zoom.transform, d3.zoomIdentity.translate(cx, cy).scale(k).translate(-x, -y)); }
 function flyWorld() { svg.transition().duration(reduce ? 0 : 1300).ease(d3.easeCubicInOut).call(zoom.transform, d3.zoomIdentity); }
@@ -227,11 +237,9 @@ function drawBar() {
   $('modes').innerHTML = Object.entries(MODES).map(([k, m]) => `<button data-mode="${esc(k)}" aria-pressed="${state.mode === k}">${m.c ? `<i style="background:var(${m.c})"></i>` : ''}${esc(m.l)}</button>`).join('');
   $('layers').innerHTML = `<button class="chip" data-layer="disc" aria-pressed="${state.layers.disc}"><svg viewBox="0 0 16 8"><rect x="4.5" y=".5" width="7" height="7" rx="2" fill="none" stroke="var(--m-disc)" stroke-width="1.4"/></svg>Places</button>`;
   const lt = state.lens ? lensTitle() : null;
-  $('lensSlot').innerHTML = lt ? `<span class="lenschip"><small>${esc(lt[0])}</small><span>${esc(lt[1])}</span><button id="clearLens" aria-label="Clear filter">×</button></span>` : '';
+  $('lensSlot').innerHTML = lt ? `<span class="lenschip"><small>${esc(lt[0])}</small><span>${esc(lt[1])}</span><button id="clearLens" aria-label="Clear filter">${icon('close', 14)}</button></span>` : '';
   const saved = Object.values(D.maps).sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 10);
-  $('strip').innerHTML = `<span class="lbl">${saved.length ? 'Maps' : 'Try'}</span>` +
-    saved.map((s) => storyCard('map', s.id, s.chip || 'Map', s.m, s.prompt)).join('') +
-    IDEAS.map((x, i) => storyCard('idea', i, x[0], '', x[1].replace(/\s+$/, '…'))).join('');
+  $('strip').innerHTML = saved.length ? `<span class="lbl">Maps</span>` + saved.map((s) => storyCard('map', s.id, s.chip || 'Map', s.m, s.prompt)).join('') : '';
 }
 function storyCard(kind, id, chip, m, prompt) { const c = MODES[m]?.c || '--accent'; return `<button class="story" data-${kind}="${esc(id)}" aria-pressed="${kind === 'map' && state.lens === id}"><small style="color:var(${c})"><i style="background:var(${c})"></i>${esc(chip)}</small><span>“${esc(prompt)}”</span></button>`; }
 function lensTitle() {
@@ -294,13 +302,29 @@ function avatar(p, size) {
   return `<span class="av${c}" style="background:${col(p)}">${esc(ini(p.n))}</span>`;
 }
 function allPlans() { const out = []; Object.values(D.maps).forEach((s) => (s.plans || []).forEach((p) => out.push({ ...p, mapId: s.id, planned: s.state?.[p.id]?.planned }))); return out; }
+function navCount(tab) { return tab === 'people' ? D.people.length : tab === 'plans' ? allPlans().filter((p) => p.planned).length : 0; }
 function renderTabs() {
-  const tabs = [['today', 'Today'], ['people', 'People', D.people.length], ['plans', 'Plans', allPlans().filter((p) => p.planned).length]];
-  $('tabs').innerHTML = tabs.map(([k, l, c]) => `<button role="tab" data-tab="${k}" aria-selected="${state.tab === k}">${l}${c ? `<span class="badge">${c}</span>` : ''}</button>`).join('');
+  const cur = state.view === 'person' ? state.back?.tab || 'today' : state.tab;
+  const ready = D.loaded && home();
+  $('tabs').innerHTML = ready ? NAV.map((n) => { const c = navCount(n.tab); return `<button role="tab" data-tab="${n.tab}" aria-selected="${cur === n.tab}">${esc(n.label)}${c ? `<span class="badge">${c}</span>` : ''}</button>`; }).join('') + `<button class="add" data-act="add" aria-label="Add a person">${icon('plus', 18)}</button>` : '';
+  document.querySelectorAll('.rail-item').forEach((b) => {
+    const t = b.dataset.tab, c = navCount(t);
+    b.setAttribute('aria-current', cur === t ? 'page' : 'false');
+    b.disabled = !ready;
+    b.querySelector('.badge')?.remove();
+    if (c && t === 'plans') b.insertAdjacentHTML('beforeend', `<span class="badge">${c}</span>`);
+  });
+}
+function renderSkeleton() {
+  pb.innerHTML = `<div aria-busy="true" aria-label="Loading your network"><div class="sk t"></div><div class="sk s"></div><div class="sk c"></div>${'<div class="skrow"><span class="sk"></span><div><div class="sk l"></div><div class="sk l"></div></div></div>'.repeat(5)}</div>`;
+}
+function renderError() {
+  const signin = typeof D.error === 'string';
+  pb.innerHTML = `<div class="empty"><div class="ei">${icon('alert', 26)}</div><h3>${signin ? 'Sign in to use Sparkles' : 'We couldn’t load your network'}</h3><p>${signin ? esc(D.error) : 'Check your connection, then try again. Nothing you saved is lost.'}</p>${signin ? '' : `<button class="btn go" data-act="retry">Try again</button>`}</div>`;
 }
 function renderPanel(keepScroll?) {
   if (!keepScroll) pb.scrollTop = 0; renderTabs();
-  if (!D.loaded) { pb.innerHTML = `<h2 class="greet">${D.error ? (typeof D.error === 'string' ? 'Sign in to use Sparkles' : 'Couldn’t load your network') : 'Loading your network…'}</h2><p class="sub">${D.error ? (typeof D.error === 'string' ? esc(D.error) : 'Check your connection and reload the page.') : 'Your people and maps are private to you.'}</p>`; return; }
+  if (!D.loaded) return D.error ? renderError() : renderSkeleton();
   if (!home()) return renderWelcome();
   if (state.view === 'person') return renderPerson();
   if (state.view === 'lens') return renderLens();
@@ -309,34 +333,55 @@ function renderPanel(keepScroll?) {
   renderToday();
 }
 const firstName = () => (VIEWER.name || '').split(' ')[0];
+const canSample = () => !!API.loadSample;
+const isSampleP = (p) => (p.src || []).includes('Sample');
+function sampleOption(primary = false) {
+  return canSample() ? `<button class="option${primary ? ' primary' : ''}" data-act="sample"><span class="oi">${icon('sample', 20)}</span><div><b>Explore with sample people</b><small>28 people around the world. Remove them any time.</small></div></button>` : '';
+}
 function renderWelcome() {
-  pb.innerHTML = `<h2 class="greet">Welcome${firstName() ? ', ' + esc(firstName()) : ''}</h2>
-   <p class="sub">See your network on a map. Say what you want to do, and Sparkles finds the right people and suggests a small next step.</p>
-   <form class="form" id="homeForm"><label>Where do you live?<input id="homeCity" list="cityList" placeholder="City, for example Lisbon" autocomplete="off" required></label><button class="btn go" type="submit">Start my map</button></form>
-   <div class="banner">Your people, notes and maps are private to your account.</div>`;
+  pb.innerHTML = `<div class="eb">${icon('spark', 14)}Welcome${firstName() ? ', ' + esc(firstName()) : ''}</div>
+   <h2 class="greet">Put the people you care about on a map</h2>
+   <p class="sub">Say what you want to do, and Sparkles finds the right people in your network and suggests a small next step.</p>
+   <ol class="steps" aria-label="Step 1 of 3"><li class="on"></li><li></li><li></li></ol>
+   <div class="steps-l"><span>Home city</span><span>Your people</span><span>First plan</span></div>
+   <form class="form" id="homeForm"><label>Where do you live?<input id="homeCity" list="cityList" placeholder="City, for example Lisbon" autocomplete="off" required></label><button class="btn go lg block" type="submit">Continue</button></form>
+   ${canSample() ? `<div class="or">or</div>${sampleOption()}` : ''}
+   <p class="privacy">${icon('lock', 15)}<span>Your people, notes and maps are private to your account.</span></p>`;
+}
+const DAY = 864e5;
+const since = (p) => (p.last ? (Date.now() - new Date(p.last).getTime()) / DAY : Infinity);
+function addPeopleCard() {
+  return `<div class="card hero"><ol class="steps" aria-label="Step 2 of 3" style="margin-top:0"><li class="on"></li><li class="on"></li><li></li></ol>
+   <h3 style="margin-top:14px">Add your people</h3><p>Start with a few people who matter. You can import everyone else later.</p>
+   <div class="options">
+    <button class="option primary" data-act="add"><span class="oi">${icon('user', 20)}</span><div><b>Add a person</b><small>Name, city and a note about them</small></div></button>
+    <button class="option" data-act="import"><span class="oi">${icon('upload', 20)}</span><div><b>Import a CSV</b><small>LinkedIn’s Connections.csv or any list with names</small></div></button>
+    ${sampleOption()}
+   </div></div>`;
 }
 function renderToday() {
   const ppl = D.people.filter((p) => state.mode === 'all' || p.m === state.mode), unpl = D.people.filter((p) => !placed(p)).length;
-  const reconnect = ppl.filter((p) => p.note || p.tags?.length || p.doing).sort((a, b) => (a.last || '0').localeCompare(b.last || '0')).slice(0, 5);
+  const due = ppl.filter((p) => since(p) >= 45 && since(p) < Infinity).sort((a, b) => since(b) - since(a)).slice(0, 5);
   const recent = [...ppl].sort((a, b) => (b.added || 0) - (a.added || 0)).slice(0, 4);
   const saved = Object.values(D.maps).sort((a, b) => (b.at || 0) - (a.at || 0));
   const planned = allPlans().filter((p) => p.planned).sort((a, b) => b.planned - a.planned);
+  const samples = D.people.filter(isSampleP).length;
+  const cities = new Set(D.people.filter(placed).map((p) => p.ck)).size;
   pb.innerHTML = `
    <h2 class="greet">${greetWord()}${firstName() ? ', ' + esc(firstName()) : ''}</h2>
-   <p class="sub">${esc(today())} · Home: ${esc(home().city)}</p>
-   ${D.people.length === 0 ? `<div class="card"><h3>Add your network</h3><p>Import a contacts file, then add the people who matter most and a few notes about them.</p>
-     <ol><li>LinkedIn: Settings, Data privacy, Get a copy of your data, Connections. Upload the Connections.csv file.</li><li>Any other CSV with a Name column works too, plus optional City, Company, Title, Notes and Interests.</li></ol>
-     <div class="btns"><button class="btn go" data-act="import">Import a CSV</button><button class="btn" data-act="add">Add a person</button></div></div>` : ''}
-   ${unpl ? `<div class="card"><h3>${unpl} ${unpl === 1 ? 'person needs' : 'people need'} a city</h3><p>Add a city to put them on the map.</p><div class="btns"><button class="btn go" data-act="place">Add cities</button></div></div>` : ''}
-   ${!D.ai ? `<div class="banner">AI suggestions are off on this server, so Sparkles matches your requests by keywords.</div>` : ''}
+   <p class="sub">${esc(today())} · <button class="homechip" data-act="home" title="Change home city">${icon('pin', 14)}${esc(home().city)}</button></p>
+   ${D.people.length === 0 ? addPeopleCard() : `<div class="tiles"><button class="tile" data-tab="people"><b>${D.people.length}</b><small>People</small></button><button class="tile" data-act="world"><b>${cities}</b><small>Cities</small></button><button class="tile" data-tab="plans"><b>${planned.length}</b><small>Plans</small></button></div>`}
+   ${samples ? `<div class="banner">${icon('sample', 18)}<span>You’re exploring ${samples} sample people.</span><button class="btn sm ghost" data-act="clearsample">Remove</button></div>` : ''}
+   ${unpl ? `<div class="card warn"><div class="cardhead">${icon('pin', 20)}<div><h3>${unpl} ${unpl === 1 ? 'person needs' : 'people need'} a city</h3><p>Add a city to put them on the map.</p><button class="btn sm go" data-act="place">Add cities</button></div></div></div>` : ''}
    ${planned.length ? `<div class="h4">Your plans<span class="cnt">${planned.length}</span></div>${planned.slice(0, 5).map(planRow).join('')}` : ''}
+   ${due.length ? `<div class="h4">Reach out<span class="cnt">Longest since you talked</span></div>${due.map((p) => `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc(p.doing || [p.role, p.company].filter(Boolean).join(' · ') || p.city || '')}</small></div><span class="pill${since(p) > 120 ? ' warn' : ''}">${esc(ago(p.last))}</span></div>`).join('')}` : ''}
    <div class="h4">Ask Sparkles</div>
    <div class="tags">${IDEAS.map((x, i) => `<button class="tag" data-ideaq="${i}">${esc(x[1].replace(/\s+$/, '…'))}</button>`).join('')}</div>
-   ${saved.length ? `<div class="h4">Your maps<span class="cnt">${saved.length}</span></div>${saved.slice(0, 8).map((s) => `<div class="row" data-openmap="${esc(s.id)}"><span class="globe" style="width:32px;height:32px;font-size:12px">${esc(ICONS.includes(s.plans?.[0]?.ic) ? s.plans[0].ic : '◎')}</span><div><b>${esc(s.title)}</b><small>“${esc(s.prompt)}”</small></div></div>`).join('')}` : ''}
-   ${reconnect.length ? `<div class="h4">Worth reconnecting</div>${reconnect.map((p) => `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc(p.doing || p.note || p.tags.join(', '))}</small></div><span class="when">${p.last ? esc(ago(p.last)) : 'not logged'}</span></div>`).join('')}` : ''}
+   ${!D.ai ? `<p class="hint">${icon('spark', 14)}Offline suggestions: Sparkles matches your words to people’s notes and interests.</p>` : ''}
+   ${saved.length ? `<div class="h4">Your maps<span class="cnt">${saved.length}</span></div>${saved.slice(0, 8).map((s) => `<div class="row" data-openmap="${esc(s.id)}"><span class="globe">${esc(ICONS.includes(s.plans?.[0]?.ic) ? s.plans[0].ic : '◎')}</span><div><b>${esc(s.title)}</b><small>“${esc(s.prompt)}”</small></div></div>`).join('')}` : ''}
    ${recent.length ? `<div class="h4">Recently added</div>${recent.map((p) => `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc([p.role, p.company].filter(Boolean).join(' · ') || 'No details yet')}</small></div><span class="when">${esc(p.city || 'No city')}</span></div>`).join('')}` : ''}`;
 }
-const planRow = (p) => `<div class="row" data-hl="${esc((p.with || []).join(','))}" data-openmap="${esc(p.mapId)}"><span class="av" style="background:var(--good)">✓</span><div><b>${esc(p.title)}</b><small>${esc(p.when || '')}${p.where ? ' · ' + esc(p.where) : ''}</small></div></div>`;
+const planRow = (p) => `<div class="row" data-hl="${esc((p.with || []).join(','))}" data-openmap="${esc(p.mapId)}"><span class="av" style="background:var(--good)">${icon('check', 18)}</span><div><b>${esc(p.title)}</b><small>${esc(p.when || '')}${p.where ? ' · ' + esc(p.where) : ''}</small></div></div>`;
 function planCard(p, mapId) {
   const b = !!D.maps[mapId]?.state?.[p.id]?.planned, w = (p.with || []).map(byId).filter(Boolean), d = state.drafts[p.id];
   return `<div class="plan${b ? ' booked' : ''}" data-hl="${esc((p.with || []).join(','))}" data-plan="${esc(p.id)}" data-pmap="${esc(mapId)}">
@@ -357,13 +402,13 @@ function rowFor(id, why) {
 function renderLens() {
   if (state.lens.startsWith('place:')) {
     const ck = state.lens.slice(6), ppl = D.people.filter((p) => p.ck === ck), p0 = ppl[0];
-    pb.innerHTML = `<button class="back" data-back>← Today</button><div class="eb">Place</div><h2 class="greet">${esc(p0 ? p0.city : '')}</h2><p class="sub">${ppl.length} ${ppl.length === 1 ? 'person' : 'people'} you know.${p0 && p0.tz ? ' It is ' + esc(localTime(p0.tz)) + ' there now.' : ''}</p>
+    pb.innerHTML = `<button class="back" data-back>${icon('back', 16)}Today</button><div class="eb">Place</div><h2 class="greet">${esc(p0 ? p0.city : '')}</h2><p class="sub">${ppl.length} ${ppl.length === 1 ? 'person' : 'people'} you know.${p0 && p0.tz ? ' It is ' + esc(localTime(p0.tz)) + ' there now.' : ''}</p>
      <div class="h4">Who’s there</div>${ppl.map((p) => `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc(p.doing || [p.role, p.company].filter(Boolean).join(' · '))}</small></div></div>`).join('')}`;
     return;
   }
   const s = curMap(); if (!s) { setLens(null); return; }
   const c = MODES[s.m]?.c || '--accent';
-  pb.innerHTML = `<button class="back" data-back>← Today</button>
+  pb.innerHTML = `<button class="back" data-back>${icon('back', 16)}Today</button>
    <div class="eb"><i style="background:var(${c})"></i>${esc(s.chip || 'Map')}</div><h2 class="greet">${esc(s.title)}</h2><p class="sub">${esc(s.sub || '')}</p>
    ${(s.plans || []).length ? `<div class="h4">Suggested plans<span class="cnt">${s.plans.length}</span></div>${s.plans.map((p) => planCard(p, s.id)).join('')}` : ''}
    ${(s.sec || []).map(secOf).map(([h, ids = [], why, note]) => { const rows = ids.map((id) => rowFor(id, why && why[id])).join(''); return rows ? `<div class="h4">${esc(h)}<span class="cnt">${ids.length}</span></div>${note ? `<p class="optin">${esc(note)}</p>` : ''}${rows}` : ''; }).join('')}
@@ -374,7 +419,7 @@ function renderLens() {
 function renderPlans() {
   const list = allPlans().filter((p) => p.planned).sort((a, b) => b.planned - a.planned);
   pb.innerHTML = `<h2 class="greet">Plans</h2><p class="sub">Plans you’ve marked from your maps.</p>
-   ${list.length ? list.map(planRow).join('') : `<div class="card"><h3>No plans yet</h3><p>Type what you want to do in the box at the top. Sparkles suggests plans with people you know, and you can mark the ones you’ll do.</p></div>`}`;
+   ${list.length ? `<div class="h4">Planned<span class="cnt">${list.length}</span></div>` + list.map(planRow).join('') : `<div class="empty"><div class="ei">${icon('plans', 26)}</div><h3>No plans yet</h3><p>Tell Sparkles what you want to do. It suggests small plans with people you know, and you mark the ones you’ll do.</p><button class="btn go" data-ideaq="3">Who should I catch up with?</button></div>`}`;
 }
 function circleOptions(sel, withNone = true) {
   return (withNone ? `<option value=""${!sel ? ' selected' : ''}>No circle</option>` : '') + D.circles.map((c) => `<option value="${esc(c.id)}"${sel === c.id ? ' selected' : ''}>${esc(c.label)}</option>`).join('');
@@ -388,10 +433,14 @@ function renderPeople() {
   if (q) list = list.filter((p) => [p.n, p.role, p.company, p.city, (p.tags || []).join(' '), p.note].join(' ').toLowerCase().includes(q));
   list = [...list].sort((a, b) => String(a.n).localeCompare(String(b.n)));
   const unpl = D.people.filter((p) => !placed(p)).length;
-  pb.innerHTML = `<div class="search"><input id="pq" type="search" placeholder="Search people, companies, interests" value="${esc(state.pq)}" aria-label="Search people"><button class="btn sm go" data-act="add">Add</button></div>
-   <div class="pfilter"><button data-pf="all" aria-pressed="${state.pf === 'all'}">All ${D.people.length}</button><button data-pf="unplaced" aria-pressed="${state.pf === 'unplaced'}">Need a city ${unpl}</button></div>
+  const emptyList = !D.people.length
+    ? `<div class="empty"><div class="ei">${icon('people', 26)}</div><h3>No one here yet</h3><p>Add the people you want to stay close to, or import a list.</p><div class="btns" style="justify-content:center"><button class="btn go" data-act="add">Add a person</button><button class="btn" data-act="import">Import a CSV</button></div>${canSample() ? `<div class="btns" style="justify-content:center"><button class="btn ghost sm" data-act="sample">Or explore sample people</button></div>` : ''}</div>`
+    : `<div class="empty"><div class="ei">${icon('search', 26)}</div><h3>No one matches</h3><p>Try a name, a company, a city or an interest.</p></div>`;
+  pb.innerHTML = `<div class="headrow"><div><h2 class="greet">People</h2><p class="sub">${D.people.length} ${D.people.length === 1 ? 'person' : 'people'}${state.mode !== 'all' && MODES[state.mode] ? ' · showing ' + esc(MODES[state.mode].l) : ''}</p></div><button class="btn go" data-act="add">${icon('plus', 16)}Add</button></div>
+   ${D.people.length ? `<div class="search" style="margin-top:16px"><label class="sbox">${icon('search', 16)}<input id="pq" type="search" placeholder="Search names, companies, cities, interests" value="${esc(state.pq)}" aria-label="Search people"></label></div>
+   <div class="pfilter"><button data-pf="all" aria-pressed="${state.pf === 'all'}">All ${D.people.length}</button>${unpl ? `<button data-pf="unplaced" aria-pressed="${state.pf === 'unplaced'}">Need a city ${unpl}</button>` : ''}</div>` : ''}
    ${state.pf === 'unplaced' && unpl ? `<p class="optin">Type a city and press Enter to put someone on the map.</p>` : ''}
-   ${list.slice(0, state.plimit).map((p) => `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc([p.role, p.company].filter(Boolean).join(' · ') || (p.tags || []).join(', ') || circleOf(p)?.l || 'No details yet')}</small></div>${!placed(p) ? `<span class="place"><input data-placeid="${esc(p.id)}" list="cityList" placeholder="Add city" aria-label="City for ${esc(p.n)}"></span>` : `<span class="when">${esc(p.city || '')}</span>`}</div>`).join('') || `<p class="sub">No one matches.</p>`}
+   ${list.slice(0, state.plimit).map((p) => `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc([p.role, p.company].filter(Boolean).join(' · ') || (p.tags || []).join(', ') || circleOf(p)?.l || 'No details yet')}</small></div>${!placed(p) ? `<span class="place"><input data-placeid="${esc(p.id)}" list="cityList" placeholder="Add city" aria-label="City for ${esc(p.n)}"></span>` : `<span class="when">${esc(p.city || '')}</span>`}</div>`).join('') || emptyList}
    ${list.length > state.plimit ? `<div class="btns"><button class="btn sm" data-act="more">Show more (${list.length - state.plimit})</button></div>` : ''}
    <div class="h4">Import</div>
    <div class="form" style="margin-top:0"><label>Put imported people in<select id="impCircle">${circleOptions(state.importCircle)}</select></label></div>
@@ -402,54 +451,96 @@ function renderPeople() {
    ${D.circles.map((c, i) => `<div class="c-edit"><button class="c-dot" style="background:var(--c${c.color})" data-ccolor="${i}" aria-label="Change color of ${esc(c.label)}"></button><input data-clabel="${i}" value="${esc(c.label)}" maxlength="24" aria-label="Circle name"><button class="btn sm ghost" data-cdel="${i}">Remove</button></div>`).join('')}
    <div class="btns">${D.circles.length < 12 ? `<button class="btn sm" data-act="addcircle">Add a circle</button>` : ''}</div>
    <div class="h4">Settings</div>
-   <div class="btns"><button class="btn sm" data-act="home">Home: ${esc(home().city)}</button>${D.people.length ? `<button class="btn sm ghost" data-act="wipe">Remove everyone</button>` : ''}</div>
+   <div class="btns"><button class="btn sm" data-act="home">${icon('pin', 16)}Home: ${esc(home().city)}</button>${D.people.some(isSampleP) ? `<button class="btn sm" data-act="clearsample">Remove sample people</button>` : ''}${D.people.length ? `<button class="btn sm ghost" data-act="wipe">Remove everyone</button>` : ''}</div>
    ${state.confirm === 'wipe' ? `<div class="confirm">Remove all ${D.people.length} people? Your maps stay. This can’t be undone.<div class="btns"><button class="btn sm danger" data-act="wipe-yes">Remove everyone</button><button class="btn sm" data-cancel>Cancel</button></div></div>` : ''}
    ${state.confirm === 'home' ? `<form class="form" id="homeForm"><label>Home city<input id="homeCity" list="cityList" value="${esc(home().city)}" autocomplete="off" required></label><div class="btns" style="margin-top:0"><button class="btn sm go" type="submit">Save</button><button class="btn sm" type="button" data-cancel>Cancel</button></div></form>` : ''}`;
-  const inp = $('pq'); inp.addEventListener('input', () => { state.pq = inp.value; state.plimit = 60; const pos = inp.selectionStart; renderPanel(true); const n = $('pq'); n.focus(); n.setSelectionRange(pos, pos); });
+  const inp = $('pq'); inp?.addEventListener('input', () => { state.pq = inp.value; state.plimit = 60; const pos = inp.selectionStart; renderPanel(true); const n = $('pq'); n.focus(); n.setSelectionRange(pos, pos); });
   $('impCircle').addEventListener('change', (e) => (state.importCircle = e.target.value));
 }
 function renderEdit() {
   const p = state.edit.id ? byId(state.edit.id) : null, v = p || { m: state.mode !== 'all' ? state.mode : '' };
-  pb.innerHTML = `<button class="back" data-back-edit>← ${p ? 'Back' : 'People'}</button><h2 class="greet">${p ? 'Edit ' + esc(fn(p)) : 'Add a person'}</h2>
-   <form class="form" id="personForm">
-    <label>Name<input id="f-n" value="${esc(v.n || '')}" required maxlength="120" autocomplete="off"></label>
-    <div class="two"><label>City<input id="f-city" list="cityList" value="${esc(v.city ? v.city + (v.country ? ', ' + v.country : '') : '')}" placeholder="City, Country" autocomplete="off"></label>
-     <label>Circle<select id="f-m">${circleOptions(v.m)}</select></label></div>
-    <div class="two"><label>Role<input id="f-role" value="${esc(v.role || '')}" autocomplete="off"></label><label>Company<input id="f-company" value="${esc(v.company || '')}" autocomplete="off"></label></div>
-    <label>Interests <small>comma separated</small><input id="f-tags" value="${esc((v.tags || []).join(', '))}" autocomplete="off"></label>
-    <label>What they’re up to<input id="f-doing" value="${esc(v.doing || '')}" autocomplete="off"></label>
-    <label>Your notes<textarea id="f-note" placeholder="How you met, what you talked about, what you promised">${esc(v.note || '')}</textarea></label>
-    <div class="two"><label>Last talked<input id="f-last" type="date" value="${esc((v.last || '').slice(0, 10))}"></label><label>Email<input id="f-email" value="${esc(v.email || '')}" autocomplete="off"></label></div>
-    <label>Profile link<input id="f-url" value="${esc(v.url || '')}" placeholder="https://" autocomplete="off"></label>
-    <div class="btns"><button class="btn go" type="submit" id="saveBtn">Save</button>${p ? `<button class="btn ghost" type="button" data-delp="${esc(p.id)}">Delete</button>` : ''}</div>
-    ${p && state.confirm === 'del:' + p.id ? `<div class="confirm">Delete ${esc(p.n)}?<div class="btns"><button class="btn sm danger" type="button" data-delp-yes="${esc(p.id)}">Delete</button><button class="btn sm" type="button" data-cancel>Keep</button></div></div>` : ''}
+  const cityVal = v.city ? v.city + (v.country ? ', ' + v.country : '') : '';
+  pb.innerHTML = `<button class="back" data-back-edit>${icon('back', 16)}${p ? esc(fn(p)) : 'Cancel'}</button>
+   <h2 class="greet">${p ? 'Edit ' + esc(fn(p)) : 'Add a person'}</h2>
+   <p class="sub">${p ? 'Changes save to your private map.' : 'Only a name is required. Add a city to put them on the map.'}</p>
+   <form class="form" id="personForm" novalidate>
+    <label>Name<input id="f-n" value="${esc(v.n || '')}" required maxlength="120" autocomplete="off" placeholder="Full name"><span class="err" id="e-n" hidden>Add a name to save.</span></label>
+    <label>City<input id="f-city" list="cityList" value="${esc(cityVal)}" placeholder="City, Country" autocomplete="off"><span id="cityHint" class="${cityVal ? 'ok' : 'err'}"${cityVal ? '' : ' hidden'}>${cityVal ? icon('check', 13) + 'On the map' : ''}</span></label>
+    <div class="lbl">Circle<div class="cpick" role="radiogroup" aria-label="Circle">
+      <label><input type="radio" name="f-m" value=""${!v.m ? ' checked' : ''}><i></i>None</label>
+      ${D.circles.map((c) => `<label><input type="radio" name="f-m" value="${esc(c.id)}"${v.m === c.id ? ' checked' : ''}><i style="background:var(--c${c.color})"></i>${esc(c.label)}</label>`).join('')}
+    </div></div>
+    <div class="fsec"><h5>What you know</h5>
+     <div class="two"><label>Role<input id="f-role" value="${esc(v.role || '')}" autocomplete="off" placeholder="Designer"></label><label>Company<input id="f-company" value="${esc(v.company || '')}" autocomplete="off"></label></div>
+     <label>Interests <small>comma separated</small><input id="f-tags" value="${esc((v.tags || []).join(', '))}" autocomplete="off" placeholder="jazz, climbing, fundraising"></label>
+     <label>What they’re up to<input id="f-doing" value="${esc(v.doing || '')}" autocomplete="off" placeholder="Training for a marathon"></label>
+     <label>Your notes<textarea id="f-note" placeholder="How you met, what you talked about, what you promised">${esc(v.note || '')}</textarea></label>
+    </div>
+    <div class="fsec"><h5>Keeping in touch</h5>
+     <div class="two"><label>Last talked<input id="f-last" type="date" value="${esc((v.last || '').slice(0, 10))}" max="${new Date().toISOString().slice(0, 10)}"></label><label>Email<input id="f-email" type="email" value="${esc(v.email || '')}" autocomplete="off"></label></div>
+     <label>Profile link<input id="f-url" value="${esc(v.url || '')}" placeholder="https://" autocomplete="off"></label>
+    </div>
+    ${p && state.confirm === 'del:' + p.id ? `<div class="confirm">Delete ${esc(p.n)}? This can’t be undone.<div class="btns"><button class="btn sm danger solid" type="button" data-delp-yes="${esc(p.id)}">Delete</button><button class="btn sm" type="button" data-cancel>Keep</button></div></div>` : ''}
+    <div class="formbar">${p ? `<button class="btn ghost danger-text" type="button" data-delp="${esc(p.id)}">Delete</button>` : ''}<span class="sp"></span><button class="btn" type="button" data-back-edit>Cancel</button><button class="btn go" type="submit" id="saveBtn">${p ? 'Save changes' : 'Add to map'}</button></div>
    </form>`;
+  const ci = $('f-city'), hint = $('cityHint');
+  ci.addEventListener('input', () => {
+    const q = ci.value.trim(); hint.hidden = !q;
+    if (!q) return;
+    const hit = findCity(q);
+    hint.className = hit ? 'ok' : 'hint';
+    hint.innerHTML = hit ? `${icon('check', 13)}${esc(hit.city)}, ${esc(hit.country)}` : 'We’ll look this up when you save.';
+  });
+  $('f-n').addEventListener('input', (e) => { if (e.target.value.trim()) { e.target.removeAttribute('aria-invalid'); $('e-n').hidden = true; } });
 }
 function renderPerson() {
   const p = byId(state.sel); if (!p) { goBack(); return; }
-  const back = state.back && state.back.view === 'lens' && state.lens ? '← ' + lensTitle()[1] : state.back && state.back.tab === 'people' ? '← People' : '← Today';
+  const back = state.back && state.back.view === 'lens' && state.lens ? lensTitle()[1] : state.back && state.back.tab === 'people' ? 'People' : state.back && state.back.tab === 'plans' ? 'Plans' : 'Today';
+  const backBtn = `<button class="back" data-back>${icon('back', 16)}${esc(back)}</button>`;
   if (p.t === 'disc') {
-    pb.innerHTML = `<button class="back" data-back>${esc(back)}</button><div class="phead">${avatar(p, 'lg')}<div><h3>${esc(p.n)}</h3><p>${esc(p.k || 'Place')}${p.city ? ' · ' + esc(p.city) : ''}</p></div></div>
+    pb.innerHTML = `${backBtn}<div class="phead">${avatar(p, 'lg')}<div><h3>${esc(p.n)}</h3><p>${esc(p.k || 'Place')}${p.city ? ' · ' + esc(p.city) : ''}</p></div></div>
      ${p.doing ? `<div class="now"><span>About</span><p>${esc(p.doing)}</p></div>` : ''}
      <p class="optin" style="margin-top:12px">Suggested by AI from general knowledge. Check dates, hours and details before you go.</p>`;
     return;
   }
-  pb.innerHTML = `<button class="back" data-back>${esc(back)}</button>
-   <div class="phead">${avatar(p, 'lg')}<div><h3>${esc(p.n)}</h3><p>${esc([p.role, p.company].filter(Boolean).join(' · ') || circleOf(p)?.l || '')}</p></div></div>
-   <div class="facts"><div>Where<b>${esc(p.city || 'Not set')}</b></div><div>Local time<b>${esc(localTime(p.tz) || '–')}</b></div><div>Last talked<b>${esc(p.last ? ago(p.last) + ' ago' : 'Not logged')}</b></div></div>
+  const c = circleOf(p), d = since(p);
+  pb.innerHTML = `${backBtn}
+   <div class="phead">${avatar(p, 'lg')}<div style="flex:1;min-width:0"><h3>${esc(p.n)}</h3><p>${esc([p.role, p.company].filter(Boolean).join(' · ') || 'No role yet')}</p>
+    <div class="chips">${c ? `<span class="tag"><i style="background:var(${c.c})"></i>${esc(c.l)}</span>` : ''}${p.city ? `<span class="tag">${icon('pin', 13)}${esc(p.city)}</span>` : `<button class="tag" data-editp="${esc(p.id)}">${icon('pin', 13)}Add a city</button>`}${isSampleP(p) ? `<span class="tag">Sample</span>` : ''}</div></div>
+    <button class="iconbtn" data-editp="${esc(p.id)}" title="Edit ${esc(fn(p))}" aria-label="Edit ${esc(p.n)}" style="align-self:flex-start">${icon('edit', 18)}</button></div>
+   <div class="actions"><button class="btn go sm" data-nextstep="${esc(p.id)}">${icon('spark', 16)}${p.next ? 'Another idea' : 'Suggest a next step'}</button><button class="btn sm" data-talked="${esc(p.id)}">${icon('check', 16)}We talked today</button></div>
+   <div class="facts"><div>Where<b>${esc(p.city || 'Not set')}</b></div><div>Their time<b>${esc(localTime(p.tz) || '–')}</b></div><div class="${d > 120 && d < Infinity ? 'warn' : ''}">Last talked<b>${esc(p.last ? (d < 1 ? 'Today' : ago(p.last) + ' ago') : 'Not logged')}</b></div></div>
+   ${p.next ? `<div class="ai" style="margin-top:16px"><b>${icon('spark', 14)}Next step</b><span id="nextText">${esc(p.next)}</span></div>` : `<div id="nextText" class="sr"></div>`}
    ${p.doing ? `<div class="now"><span>Right now</span><p>${esc(p.doing)}</p></div>` : ''}
    ${p.tags && p.tags.length ? `<div class="h4">Interests</div><div class="tags">${p.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
-   ${p.note ? `<div class="h4">Your notes</div><div class="note">${esc(p.note)}</div>` : ''}
-   <div class="h4">Next step</div>
-   <div class="ai"><b>Suggestion</b><span id="nextText">${esc(p.next || 'Ask for one small, specific next step with ' + fn(p) + '.')}</span><div class="btns"><button class="btn sm go" data-nextstep="${esc(p.id)}">${p.next ? 'Suggest another' : 'Suggest a next step'}</button><button class="btn sm" data-talked="${esc(p.id)}">We talked today</button><button class="btn sm" data-editp="${esc(p.id)}">Edit</button></div></div>
-   ${(p.src || []).length || p.url || p.email ? `<div class="h4">Details</div><div class="tags">${circleOf(p) ? `<span class="tag">${esc(circleOf(p).l)}</span>` : ''}${(p.src || []).map((s) => `<span class="tag">${esc(s)}</span>`).join('')}${p.url ? `<a class="tag" href="${esc(p.url)}" target="_blank" rel="noopener">Profile ↗</a>` : ''}${p.email ? `<span class="tag" style="user-select:all">${esc(p.email)}</span>` : ''}</div>` : ''}`;
+   <div class="h4">Your notes${p.note ? '' : `<button class="lnk" data-editp="${esc(p.id)}">Add a note</button>`}</div>${p.note ? `<div class="note">${esc(p.note)}</div>` : `<p class="optin">What you talked about, what you promised, what they care about.</p>`}
+   ${p.url || p.email || (p.src || []).length ? `<div class="h4">Details</div><div class="tags">${p.email ? `<a class="tag" href="mailto:${esc(p.email)}">${icon('mail', 13)}${esc(p.email)}</a>` : ''}${p.url ? `<a class="tag" href="${esc(p.url)}" target="_blank" rel="noopener">Profile ↗</a>` : ''}${(p.src || []).filter((s) => s !== 'Sample').map((s) => `<span class="tag">${esc(s)}</span>`).join('')}</div>` : ''}`;
 }
 
+
 /* ================= panel events ================= */
-function toastErr(e) { console.warn(e); toast(e?.status === 401 ? 'Your session ended. Reload and sign in again.' : e?.message && e.status && e.status < 500 ? e.message : 'Couldn’t save. Check your connection and try again.'); }
+function toastErr(e) { console.warn(e); toast(e?.status === 401 ? 'Your session ended. Reload and sign in again.' : e?.message && e.status && e.status < 500 ? e.message : 'Couldn’t save. Check your connection and try again.', { kind: 'err' }); }
+function goTab(tab) {
+  if (!D.loaded || !home()) return;
+  runId++; state.tab = tab; state.edit = null; state.confirm = null; state.sel = null; state.hl = [];
+  if (state.view !== 'today') { state.view = 'today'; if (state.lens) { state.lens = null; drawBar(); } }
+  if (mobile()) $('panel').classList.add('big');
+  draw(); renderPanel();
+}
 function bindPanel() {
   pb = $('pbody');
-  $('tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (!b) return; state.tab = b.dataset.tab; if (state.view !== 'today') { state.view = 'today'; state.sel = null; } state.edit = null; state.confirm = null; draw(); renderPanel(); });
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-tab]');
+    if (b) { goTab(b.dataset.tab); return; }
+    const a = e.target.closest('[data-act]');
+    if (a && !pb.contains(a)) act(a.dataset.act);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || e.target.closest?.('#askForm')) return;
+    if (state.edit) { pb.querySelector('[data-back-edit]')?.click(); return; }
+    if (state.confirm) { state.confirm = null; renderPanel(true); return; }
+    if (state.view === 'person' || state.view === 'lens') goBack();
+  });
   pb.addEventListener('click', async (e) => {
     const t = e.target;
     const bk = t.closest('[data-book]'); if (bk) { bookPlan(bk.closest('.plan'), true); return; }
@@ -459,14 +550,14 @@ function bindPanel() {
     const om = t.closest('[data-openmap]'); if (om) { openMap(om.dataset.openmap); return; }
     const iq = t.closest('[data-ideaq]'); if (iq) { useIdea(+iq.dataset.ideaq); return; }
     if (t.closest('[data-back]')) { goBack(); return; }
-    if (t.closest('[data-back-edit]')) { const id = state.edit && state.edit.id; state.edit = null; state.confirm = null; if (id) { state.view = 'person'; state.sel = id; } renderPanel(); return; }
+    if (t.closest('[data-back-edit]')) { const id = state.edit && state.edit.id, from = state.edit?.from; state.edit = null; state.confirm = null; if (id) { state.view = 'person'; state.sel = id; } else if (from) state.tab = from; draw(); renderPanel(); return; }
     if (t.closest('[data-cancel]')) { state.confirm = null; renderPanel(true); return; }
     const a = t.closest('[data-act]'); if (a) { act(a.dataset.act); return; }
     const pf = t.closest('[data-pf]'); if (pf) { state.pf = pf.dataset.pf; state.plimit = 60; renderPanel(); return; }
     const ep = t.closest('[data-editp]'); if (ep) { state.edit = { id: ep.dataset.editp }; state.view = 'today'; state.tab = 'people'; state.back = { tab: 'people' }; renderPanel(); return; }
     const dl = t.closest('[data-delp]'); if (dl) { state.confirm = 'del:' + dl.dataset.delp; renderPanel(true); return; }
     const dly = t.closest('[data-delp-yes]'); if (dly) { removePerson(dly.dataset.delpYes); return; }
-    const ns = t.closest('[data-nextstep]'); if (ns) { nextStep(ns.dataset.nextstep); return; }
+    const ns = t.closest('[data-nextstep]'); if (ns) { nextStep(ns.dataset.nextstep, ns); return; }
     const tk = t.closest('[data-talked]'); if (tk) { const p = { ...byId(tk.dataset.talked), last: new Date().toISOString() }; try { await savePeople([p]); toast('Logged. Last talked: today'); renderPanel(true); } catch (err) { toastErr(err); } return; }
     const rr = t.closest('[data-rerun]'); if (rr) { const m = D.maps[rr.dataset.rerun]; runAgent(m.prompt, m.id); return; }
     const dm = t.closest('[data-delmap]'); if (dm) { state.confirm = 'map:' + dm.dataset.delmap; renderPanel(true); return; }
@@ -516,29 +607,43 @@ async function savePeople(list) {
 }
 async function act(a) {
   if (a === 'import') { $('csvIn').click(); return; }
-  if (a === 'add') { state.edit = { id: null }; state.tab = 'people'; state.view = 'today'; renderPanel(); setTimeout(() => $('f-n')?.focus(), 0); return; }
-  if (a === 'place') { state.tab = 'people'; state.pf = 'unplaced'; state.view = 'today'; renderPanel(); return; }
+  if (a === 'add') { if (!D.loaded || !home()) return; state.edit = { id: null, from: state.view === 'today' ? state.tab : 'people' }; state.tab = 'people'; state.view = 'today'; state.sel = null; if (mobile()) $('panel').classList.add('big'); draw(); renderPanel(); setTimeout(() => $('f-n')?.focus(), 0); return; }
+  if (a === 'place') { state.tab = 'people'; state.pf = 'unplaced'; state.view = 'today'; state.sel = null; draw(); renderPanel(); return; }
   if (a === 'more') { state.plimit += 100; renderPanel(true); return; }
-  if (a === 'home') { state.confirm = 'home'; renderPanel(true); return; }
+  if (a === 'home') { state.tab = 'people'; state.view = 'today'; state.confirm = 'home'; renderPanel(); setTimeout(() => { $('homeForm')?.scrollIntoView({ block: 'center' }); $('homeCity')?.select(); }, 0); return; }
+  if (a === 'world') { flyWorld(); return; }
+  if (a === 'retry') { D.error = false; renderPanel(); await loadAll(); return; }
+  if (a === 'sample') {
+    pb.querySelectorAll('[data-act="sample"]').forEach((b) => { b.disabled = true; b.style.opacity = '.6'; });
+    try { const r = await API.loadSample(); await loadAll(); state.tab = 'today'; state.view = 'today'; renderPanel(); if (r.home) flyWorld(); toast(`Added ${r.added} sample people`, { action: { label: 'Undo', run: () => act('clearsample') } }); }
+    catch (err) { renderPanel(true); toastErr(err); }
+    return;
+  }
+  if (a === 'clearsample') { try { const r = await API.clearSample(); D.people = D.people.filter((p) => !isSampleP(p)); reindex(); draw(); drawBar(); renderPanel(true); toast(`Removed ${r.removed} sample people`); } catch (err) { toastErr(err); } return; }
   if (a === 'wipe') { state.confirm = 'wipe'; renderPanel(true); return; }
   if (a === 'wipe-yes') { try { await API.deleteAllPeople(); D.people = []; state.confirm = null; reindex(); draw(); renderPanel(); toast('Everyone removed'); } catch (err) { toastErr(err); } return; }
   if (a === 'addcircle') { const used = new Set(D.circles.map((c) => c.id)); let n = 1; while (used.has('c' + n)) n++; D.circles.push({ id: 'c' + n, label: 'New circle', color: D.circles.length % 8 }); saveCircles(); setTimeout(() => { const l = document.querySelector(`[data-clabel="${D.circles.length - 1}"]`); l?.focus(); l?.select(); }, 0); }
 }
 async function savePersonForm() {
   const g = (id) => $(id).value.trim();
-  const btn = $('saveBtn'); btn.disabled = true;
+  if (!g('f-n')) { const n = $('f-n'); n.setAttribute('aria-invalid', 'true'); $('e-n').hidden = false; n.focus(); return; }
+  const btn = $('saveBtn'); btn.disabled = true; btn.classList.add('busy');
+  const fail = (msg?) => { btn.disabled = false; btn.classList.remove('busy'); if (msg) toast(msg, { kind: 'err' }); };
   const existing = state.edit.id ? byId(state.edit.id) : null;
   const p = existing ? { ...existing } : { id: 'p' + uid8(), added: Date.now(), src: ['Added by you'] };
-  Object.assign(p, { n: g('f-n'), m: g('f-m'), role: g('f-role'), company: g('f-company'), doing: g('f-doing'), note: g('f-note'), url: g('f-url'), email: g('f-email') });
+  const circle = document.querySelector('input[name="f-m"]:checked')?.value || '';
+  Object.assign(p, { n: g('f-n'), m: circle, role: g('f-role'), company: g('f-company'), doing: g('f-doing'), note: g('f-note'), url: g('f-url'), email: g('f-email') });
   p.tags = g('f-tags').split(',').map((s) => s.trim()).filter(Boolean);
   const last = g('f-last'); p.last = last ? new Date(last + 'T12:00:00').toISOString() : '';
   const cityIn = g('f-city');
   if (cityIn && cityIn !== (existing && existing.city ? existing.city + (existing.country ? ', ' + existing.country : '') : '')) {
-    const loc = await resolveCity(cityIn); if (!loc) { btn.disabled = false; toast('Couldn’t find that city. Try “City, Country”.'); return; } Object.assign(p, loc);
+    const loc = await resolveCity(cityIn);
+    if (!loc) { fail(); const h = $('cityHint'); h.hidden = false; h.className = 'err'; h.textContent = 'We couldn’t find that city. Try “City, Country”.'; $('f-city').setAttribute('aria-invalid', 'true'); $('f-city').focus(); return; }
+    Object.assign(p, loc);
   }
   if (!cityIn) ['city', 'cc', 'country', 'lat', 'lng', 'tz', 'ck'].forEach((k) => delete p[k]);
-  try { await savePeople([p]); } catch (err) { btn.disabled = false; toastErr(err); return; }
-  state.edit = null; toast('Saved'); openPerson(p.id);
+  try { await savePeople([p]); } catch (err) { fail(); toastErr(err); return; }
+  state.edit = null; drawBar(); toast(existing ? 'Saved' : `${fn(p)} is ${placed(p) ? 'on your map' : 'saved. Add a city to place them'}`); openPerson(p.id);
 }
 async function removePerson(id) {
   try { await API.deletePerson(id); } catch (err) { toastErr(err); return; }
@@ -627,32 +732,73 @@ async function bookPlan(card, on) {
   const tmp = document.createElement('div'); tmp.innerHTML = planCard(pl, mid); card.replaceWith(tmp.firstElementChild); renderTabs();
   try { await API.saveMapState(mid, st); if (on) toast('Added to your plans'); } catch (err) { m.state = prev; renderPanel(true); toastErr(err); }
 }
-async function nextStep(id) {
-  const box = $('nextText'); box.textContent = 'Thinking…';
+async function nextStep(id, btn?) {
+  if (btn) { btn.classList.add('busy'); btn.disabled = true; }
   try { const r = await API.next(id); const p = byId(id); p.next = r.text; renderPanel(true); }
-  catch (err) { box.textContent = byId(id)?.next || ''; toastErr(err); }
+  catch (err) { if (btn) { btn.classList.remove('busy'); btn.disabled = false; } toastErr(err); }
 }
 
 /* ================= toast ================= */
 let tt;
-function toast(m) { const l = $('layer'); l.querySelector('.toast')?.remove(); const d = document.createElement('div'); d.className = 'toast'; d.setAttribute('role', 'status'); d.textContent = m; l.appendChild(d); clearTimeout(tt); tt = setTimeout(() => d.remove(), 3000); }
+function toast(m, opts: { kind?: 'ok' | 'err'; action?: { label: string; run: () => void } } = {}) {
+  const l = $('layer'); l.querySelector('.toast')?.remove();
+  const d = document.createElement('div'); d.className = 'toast' + (opts.kind === 'err' ? ' err' : ''); d.setAttribute('role', opts.kind === 'err' ? 'alert' : 'status');
+  d.innerHTML = icon(opts.kind === 'err' ? 'alert' : 'check', 16) + `<span>${esc(m)}</span>` + (opts.action ? `<button type="button">${esc(opts.action.label)}</button>` : '');
+  if (opts.action) d.querySelector('button').onclick = () => { d.remove(); opts.action.run(); };
+  l.appendChild(d); clearTimeout(tt); tt = setTimeout(() => d.remove(), opts.action ? 6000 : 3200);
+}
+
+/* ================= account ================= */
+function renderAccount() {
+  const who = VIEWER.name || VIEWER.email || 'You';
+  const ini2 = who.split(/[\s@.]+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase() || 'Y';
+  document.querySelectorAll('[data-acct]').forEach((el) => (el.innerHTML = `<div class="acct"><button class="acct-btn" aria-haspopup="menu" aria-expanded="false" title="Account">${esc(ini2)}</button></div>`));
+}
+function accountMenu() {
+  const samples = D.people.some(isSampleP);
+  const where = VIEWER.mode === 'local' ? 'Local mode' : VIEWER.mode === 'claude' ? 'Signed in with Claude' : VIEWER.email;
+  return `<div class="menu float" role="menu">
+    <div class="who"><b>${esc(VIEWER.name || 'Your account')}</b><small>${esc(where || '')}</small></div>
+    ${VIEWER.admin && VIEWER.mode === 'supabase' ? `<a href="/admin" role="menuitem">${icon('mail', 18)}Invite people</a>` : ''}
+    ${canSample() && D.loaded && home() ? (samples ? `<button role="menuitem" data-act="clearsample">${icon('sample', 18)}Remove sample people</button>` : `<button role="menuitem" data-act="sample">${icon('sample', 18)}Load sample people</button>`) : ''}
+    ${VIEWER.mode === 'supabase' ? `<form action="/auth/signout" method="post"><button type="submit" role="menuitem">${icon('logout', 18)}Sign out</button></form>` : ''}
+    ${VIEWER.mode === 'local' ? `<p class="note">Your data is saved on this computer in the .data folder. Add Supabase keys to sign in and invite people.</p>` : ''}
+  </div>`;
+}
+function closeMenus() { document.querySelectorAll('.acct .menu').forEach((m) => m.remove()); document.querySelectorAll('.acct-btn').forEach((b) => b.setAttribute('aria-expanded', 'false')); }
+function bindAccount() {
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('.acct-btn');
+    if (b) { const open = b.getAttribute('aria-expanded') === 'true'; closeMenus(); if (!open) { b.insertAdjacentHTML('afterend', accountMenu()); b.setAttribute('aria-expanded', 'true'); } return; }
+    if (!e.target.closest('.acct .menu') || e.target.closest('[data-act]')) closeMenus();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenus(); });
+}
 
 /* ================= start ================= */
+async function loadAll() {
+  try {
+    const d = await API.load();
+    D.profile = d.profile; D.people = d.people || []; D.maps = Object.fromEntries((d.maps || []).map((m) => [m.id, m])); D.ai = !!d.ai; D.loaded = true; D.error = false;
+    setCircles(d.circles);
+  } catch (err) {
+    D.error = err.userMessage || true; D.loaded = false;
+    if (API === FETCH_API && (err.status === 401 || err.status === 403)) { location.href = err.status === 401 ? '/login' : '/no-access'; return; }
+  }
+  reindex(); drawBar(); draw(); renderPanel();
+}
 let started = false;
 export async function start(viewer: Viewer, api = FETCH_API) {
   if (started) return () => {};
   started = true;
   VIEWER = viewer; API = api;
   $('cityList').innerHTML = CITIES.slice(0, 2500).map((c) => `<option value="${esc(c[0])}, ${esc(COUNTRY_NAMES[c[1]] || c[1])}">`).join('');
-  initMap(); bindMap(); bindBar(); bindPanel();
+  initMap(); bindMap(); bindBar(); bindPanel(); bindAccount(); renderAccount();
   setCircles([]); drawBar(); renderPanel();
-  addEventListener('resize', layout); layout();
-  try {
-    const d = await API.load();
-    D.profile = d.profile; D.people = d.people || []; D.maps = Object.fromEntries((d.maps || []).map((m) => [m.id, m])); D.ai = !!d.ai; D.loaded = true;
-    setCircles(d.circles);
-  } catch (err) { D.error = err.userMessage || true; D.loaded = false; if (api === FETCH_API && (err.status === 401 || err.status === 403)) { location.href = err.status === 401 ? '/login' : '/no-access'; return; } }
-  reindex(); drawBar(); draw(); renderPanel();
-  if (home()) flyLL(home().lat, home().lng, 1.6);
-  return () => removeEventListener('resize', layout);
+  const onResize = () => { layout(); };
+  addEventListener('resize', onResize); layout();
+  await loadAll();
+  if (D.people.some(placed)) fitItems(D.people.filter(placed));
+  else if (home()) flyLL(home().lat, home().lng, 2.4);
+  return () => removeEventListener('resize', onResize);
 }

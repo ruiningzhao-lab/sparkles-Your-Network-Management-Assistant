@@ -41,6 +41,7 @@ export type Plan = {
   with: string[];
   why: string;
   where: string;
+  topic?: string; // set by the offline fallback, used to write its draft
 };
 
 export type Discover = Place & { id: string; t: 'disc'; g: string; n: string; k: string; doing: string };
