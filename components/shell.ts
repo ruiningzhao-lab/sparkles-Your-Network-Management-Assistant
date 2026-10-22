@@ -28,7 +28,10 @@ export function shellHTML(appName: string) {
   <div class="top-acct" data-acct></div>
 </header>
 <div class="mapctl">
-  <div class="stats" id="stats" aria-live="polite"></div>
+  <div class="mapctl-l">
+    <div class="stats" id="stats" aria-live="polite"></div>
+    <span class="mapattr" id="mapAttr" hidden>© OpenStreetMap · © CARTO</span>
+  </div>
   <div class="zoombox" role="group" aria-label="Map zoom">
     <button id="zin" aria-label="Zoom in" title="Zoom in">${icon('plus', 18)}</button>
     <button id="zout" aria-label="Zoom out" title="Zoom out">${icon('minus', 18)}</button>

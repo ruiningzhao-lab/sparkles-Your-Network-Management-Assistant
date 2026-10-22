@@ -79,6 +79,11 @@ a{color:var(--accent)}
 .land{fill:var(--land);stroke:var(--coast);stroke-width:.75;vector-effect:non-scaling-stroke}
 .borders{fill:none;stroke:var(--coast);stroke-width:.45;vector-effect:non-scaling-stroke;opacity:.55}
 .grat{fill:none;stroke:var(--coast);stroke-width:.35;opacity:.22;vector-effect:non-scaling-stroke}
+.maptiles{pointer-events:none}
+.maptiles image{opacity:1}
+.maptiles{filter:sepia(.14) saturate(.82) brightness(1.04) contrast(.94)}
+.mapattr{font:500 9px var(--f-body);color:var(--ink3);letter-spacing:.02em;opacity:.85;max-width:min(42vw,280px);line-height:1.3}
+.mapctl-l{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}
 .mk{cursor:pointer}
 .mk>circle:not(.halo),.mk>rect{filter:none}
 .mk:hover>circle:not(.halo),.mk.hov>circle:not(.halo){stroke:var(--ink);stroke-width:2}

@@ -2,6 +2,7 @@
 // The map app. Plain DOM + d3 for speed: it renders into the shell markup in Atlas.tsx
 // and talks to the server only through the small API object below.
 import * as d3 from 'd3';
+import { tile as d3tile } from 'd3-tile';
 import { feature, mesh } from 'topojson-client';
 import TOPO from 'world-atlas/countries-50m.json';
 import { CITIES, COUNTRY_NAMES, findCity, makePlace } from '@/lib/geo';
@@ -81,10 +82,17 @@ const home = () => D.profile?.home || null;
 const secOf = (x) => (Array.isArray(x) ? x : [x.h, x.ids, x.why, x.note]);
 
 /* ================= map ================= */
-let svg, gBase, pGrat, pLand, pBord, gTether, gStr, gMk, gYou, zoom, land, borders;
+let svg, gBase, gTiles, pGrat, pLand, pBord, gTether, gStr, gMk, gYou, zoom, land, borders, tileLayout;
+const TILE_ZOOM_IN = 3.2;
+const TILE_ZOOM_FULL = 5.8;
+const tileMix = (k) => d3.scaleLinear().domain([TILE_ZOOM_IN, TILE_ZOOM_FULL]).range([0, 1]).clamp(true)(k);
+const tileHref = (d) => {
+  const r = devicePixelRatio > 1 ? '@2x' : '';
+  return `https://a.basemaps.cartocdn.com/rastertiles/voyager/${d[2]}/${d[0]}/${d[1]}${r}.png`;
+};
 const ASK_PH_LONG = 'What do you want to do? Sparkles finds the people.';
 const ASK_PH_SHORT = 'What do you want to do?';
-let W = 0, H = 0, proj = d3.geoNaturalEarth1();
+let W = 0, H = 0, proj = d3.geoMercator();
 const SPLIT = 3.2;
 // The part of the screen not covered by the rail, prompt and panel, so pins never hide under them.
 function view() {
@@ -98,6 +106,8 @@ function initMap() {
   svg = d3.select('#map');
   svg.selectAll('*').remove();
   gBase = svg.append('g');
+  tileLayout = d3tile();
+  gTiles = gBase.append('g').attr('class', 'maptiles');
   land = feature(TOPO, TOPO.objects.countries);
   borders = mesh(TOPO, TOPO.objects.countries, (a, b) => a !== b);
   pGrat = gBase.append('path').attr('class', 'grat');
@@ -111,11 +121,29 @@ function initMap() {
 function layout() {
   const w = innerWidth, h = innerHeight; if (Math.abs(w - W) < 2 && Math.abs(h - H) < 2) return;
   W = w; H = h; const v = view();
-  proj = d3.geoNaturalEarth1().fitExtent([[v.x0 + 16, v.y0], [v.x1 - 16, v.y1]], { type: 'MultiPoint', coordinates: [[-170, 72], [180, 72], [-170, -46], [180, -46], [0, 72], [0, -46]] });
+  proj = d3.geoMercator().fitExtent([[v.x0 + 16, v.y0], [v.x1 - 16, v.y1]], { type: 'MultiPoint', coordinates: [[-170, 72], [180, 72], [-170, -46], [180, -46], [0, 72], [0, -46]] });
   const path = d3.geoPath(proj);
   pLand.attr('d', path(land)); pBord.attr('d', path(borders)); pGrat.attr('d', path(d3.geoGraticule10()));
+  tileLayout.size([W, H]);
   zoom.translateExtent([[-W * 0.3, -H * 0.3], [W * 1.3, H * 1.3]]).extent([[0, 0], [W, H]]);
   draw();
+}
+function drawTiles(k) {
+  const mix = tileMix(k);
+  const attr = $('mapAttr');
+  if (attr) attr.hidden = mix < 0.15;
+  const fade = 1 - mix * 0.9;
+  pGrat.style('opacity', 0.22 * fade);
+  pLand.style('opacity', fade);
+  pBord.style('opacity', 0.55 * fade);
+  if (mix < 0.02) { gTiles.style('opacity', 0).selectAll('image').remove(); return; }
+  const tiles = tileLayout.scale(proj.scale() * 2 * Math.PI).translate(proj.translate())();
+  gTiles.style('opacity', mix * 0.96);
+  gTiles.selectAll('image').data(tiles, (d) => d.join('/')).join(
+    (enter) => enter.append('image').attr('pointer-events', 'none'),
+    (update) => update,
+    (exit) => exit.remove(),
+  ).attr('x', (d) => d[0] * 256).attr('y', (d) => d[1] * 256).attr('width', 256).attr('height', 256).attr('href', tileHref);
 }
 function curMap() { return state.lens && !state.lens.startsWith('place:') ? D.maps[state.lens] : null; }
 function lensSet() {
@@ -171,6 +199,7 @@ function visible() {
 function draw() {
   if (!W || !gBase) return;
   const t = state.t, k = t.k; gBase.attr('transform', t);
+  drawTiles(k);
   const items = visible(), L = lensSet(), HL = new Set(state.hl);
   const pt = (lat, lng) => { const p = proj([lng, lat]); return [t.applyX(p[0]), t.applyY(p[1])]; };
   const groups = d3.groups(items, (d) => d.ck || `${d.lat},${d.lng}`).map(([ck, arr]) => { const [x, y] = pt(arr[0].lat, arr[0].lng); return { cities: [arr[0].city || ''], items: arr, x, y }; }).sort((a, b) => b.items.length - a.items.length);
