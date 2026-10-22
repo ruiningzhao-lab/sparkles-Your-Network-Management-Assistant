@@ -1,11 +1,10 @@
 import type { Metadata, Viewport } from 'next';
-import '@fontsource/sora/500.css';
-import '@fontsource/sora/600.css';
-import '@fontsource/sora/700.css';
-import '@fontsource/figtree/400.css';
-import '@fontsource/figtree/500.css';
-import '@fontsource/figtree/600.css';
-import '@fontsource/figtree/700.css';
+import '@fontsource/source-serif-4/400.css';
+import '@fontsource/source-serif-4/600.css';
+import '@fontsource/dm-sans/400.css';
+import '@fontsource/dm-sans/500.css';
+import '@fontsource/dm-sans/600.css';
+import '@fontsource/dm-sans/700.css';
 import '@fontsource/kalam/400.css';
 import './globals.css';
 

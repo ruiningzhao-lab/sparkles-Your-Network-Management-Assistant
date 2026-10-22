@@ -138,7 +138,7 @@ function draw() {
   const items = visible(), L = lensSet(), HL = new Set(state.hl);
   const pt = (lat, lng) => { const p = proj([lng, lat]); return [t.applyX(p[0]), t.applyY(p[1])]; };
   const groups = d3.groups(items, (d) => d.ck || `${d.lat},${d.lng}`).map(([ck, arr]) => { const [x, y] = pt(arr[0].lat, arr[0].lng); return { cities: [arr[0].city || ''], items: arr, x, y }; }).sort((a, b) => b.items.length - a.items.length);
-  const C = Math.min(30, 13 + Math.max(0, k - SPLIT) * 1.6);
+  const C = Math.min(24, 10 + Math.max(0, k - SPLIT) * 1.35);
   const md = k < SPLIT ? 30 : C * 3.2, cl = [];
   for (const g of groups) {
     const m = cl.find((o) => Math.hypot(o.x - g.x, o.y - g.y) < md);
@@ -159,18 +159,18 @@ function draw() {
       g.items.forEach((p) => {
         const on = L && L.has(p.id), dimd = L && !on && p.id !== state.sel, sel = p.id === state.sel, hov = HL.has(p.id);
         let s = `<g class="mk${dimd ? ' dim' : ''}" data-id="${esc(p.id)}" transform="translate(${p._x},${p._y})">`;
-        if (sel) s += `<circle class="halo" r="15" style="animation-delay:-${now % 2200}ms"/>`;
-        if (on || hov) s += `<circle r="14.5" fill="none" stroke="${(on && agRing(p.id)) || 'var(--string)'}" stroke-width="${hov ? 3 : 2}"/>`;
-        if (p.t === 'disc') s += `<rect x="-10" y="-10" width="20" height="20" rx="6" fill="var(--surface)" stroke="var(--m-disc)" stroke-width="2" stroke-dasharray="3 2"/><text class="ini out" style="fill:var(--m-disc)">${esc(p.g || '★')}</text>`;
-        else s += `<circle r="11" fill="${col(p)}" stroke="var(--surface)" stroke-width="1.5"/><text class="ini">${esc(ini(p.n))}</text>`;
+        if (sel) s += `<circle class="halo" r="11"/>`;
+        if (on || hov) s += `<circle r="10.5" fill="none" stroke="${(on && agRing(p.id)) || 'var(--string)'}" stroke-width="${hov ? 2 : 1.5}"/>`;
+        if (p.t === 'disc') s += `<rect x="-8" y="-8" width="16" height="16" rx="4" fill="var(--surface)" stroke="var(--m-disc)" stroke-width="1.5" stroke-dasharray="3 2"/><text class="ini out" style="fill:var(--m-disc)">${esc(p.g || '·')}</text>`;
+        else s += `<circle r="8" fill="${col(p)}" stroke="var(--land)" stroke-width="1.25"/><text class="ini">${esc(ini(p.n))}</text>`;
         mk += s + '</g>';
         const showName = sel || hov || (n === 1 && !dimd && (on || k >= 2)) || (k >= SPLIT && C >= 24 && !dimd && (L ? on && nl <= 10 : n <= 6));
-        if (showName) labels += `<text class="nm" x="${p._x}" y="${p._y + 24}">${esc(p.n.length > 24 ? p.n.slice(0, 23) + '…' : p.n)}</text>`;
+        if (showName) labels += `<text class="nm" x="${p._x}" y="${p._y + 20}">${esc(p.n.length > 24 ? p.n.slice(0, 23) + '…' : p.n)}</text>`;
       });
       if (n > 1) { const rr = C * Math.sqrt(n + 1); labels += `<text class="cityl" x="${cx}" y="${cy - rr - 8}">${esc([...new Set(g.cities)].slice(0, 3).join(' · '))}</text>`; }
     } else {
       g.items.forEach((p) => { p._x = g.x; p._y = g.y; p._b = gi; });
-      const r = 9 + Math.sqrt(g.items.length) * 3;
+      const r = 7 + Math.sqrt(g.items.length) * 2.5;
       if (isHome) you = [g.x + r * 0.72, g.y - r * 0.72];
       const arcs = d3.pie().sort(null).value((d) => d[1])(d3.rollups(g.items, (v) => v.length, (d) => (d.t === 'disc' ? 'disc' : circleOf(d) ? d.m : 'none')));
       const arc = d3.arc().innerRadius(r - 4.5).outerRadius(r);
@@ -195,12 +195,12 @@ function draw() {
     const d = curve(you[0], you[1], p._x, p._y); if (d) st += `<path class="${cls}${anim(at)}" d="${d}" pathLength="1"/>`;
   });
   gStr.html(st); gMk.html(mk + labels);
-  gYou.html(you ? `<g class="you" transform="translate(${you[0]},${you[1]})"><circle r="9" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/><path d="M0,-5.5l1.6,3.6 3.9,.3-3,2.5 1,3.8L0,2.1l-3.5,2.1 1-3.8-3-2.5 3.9-.3z" fill="#fff"/><text y="-14">You</text></g>` : '');
+  gYou.html(you ? `<g class="you" transform="translate(${you[0]},${you[1]})"><circle r="7" fill="var(--accent)" stroke="var(--land)" stroke-width="1.5"/><circle r="2.5" fill="var(--accent-ink)"/><text y="-12">You</text></g>` : '');
   const ppl = items.filter((p) => p.t !== 'disc'), unpl = D.people.filter((p) => !placed(p)).length;
   $('stats').innerHTML = D.loaded ? `<span><b>${ppl.length}</b> on the map</span><span><b>${new Set(ppl.map((p) => p.ck)).size}</b> cities</span>${unpl ? `<button data-act="place" title="Add cities"><b>${unpl}</b> need a city</button>` : ''}<span class="opt"><svg viewBox="0 0 22 10"><path d="M1,9Q11,-3 21,9" fill="none" stroke="var(--string)" stroke-width="1.8"/></svg>Connection to you</span>` : '';
 }
-function flyLL(lat, lng, k) { const v = view(), cx = (v.x0 + v.x1) / 2, cy = (v.y0 + v.y1) / 2, [x, y] = proj([lng, lat]); svg.transition().duration(reduce ? 0 : 1600).ease(d3.easeCubicInOut).call(zoom.transform, d3.zoomIdentity.translate(cx, cy).scale(k).translate(-x, -y)); }
-function flyWorld() { svg.transition().duration(reduce ? 0 : 1300).ease(d3.easeCubicInOut).call(zoom.transform, d3.zoomIdentity); }
+function flyLL(lat, lng, k) { const v = view(), cx = (v.x0 + v.x1) / 2, cy = (v.y0 + v.y1) / 2, [x, y] = proj([lng, lat]); svg.transition().duration(reduce ? 0 : 200).ease(d3.easeCubicOut).call(zoom.transform, d3.zoomIdentity.translate(cx, cy).scale(k).translate(-x, -y)); }
+function flyWorld() { svg.transition().duration(reduce ? 0 : 200).ease(d3.easeCubicOut).call(zoom.transform, d3.zoomIdentity); }
 function cityZoom(p) {
   const a = proj([p.lng, p.lat]); const others = [...new Map(D.people.filter(placed).filter((o) => o.ck !== p.ck).map((o) => [o.ck, o])).values()];
   if (!others.length) return 8;
@@ -215,7 +215,7 @@ function fitItems(list) {
   const k = Math.max(1, Math.min(12, 0.75 * Math.min((v.x1 - v.x0) / Math.max(w, 1), (v.y1 - v.y0) / Math.max(hh, 1))));
   if (k < 1.4) { flyWorld(); return; }
   const cx = (Math.max(...xs) + Math.min(...xs)) / 2, cy = (Math.max(...ys) + Math.min(...ys)) / 2, vx = (v.x0 + v.x1) / 2, vy = (v.y0 + v.y1) / 2;
-  svg.transition().duration(reduce ? 0 : 1500).ease(d3.easeCubicInOut).call(zoom.transform, d3.zoomIdentity.translate(vx, vy).scale(k).translate(-cx, -cy));
+  svg.transition().duration(reduce ? 0 : 200).ease(d3.easeCubicOut).call(zoom.transform, d3.zoomIdentity.translate(vx, vy).scale(k).translate(-cx, -cy));
 }
 let tip;
 function hideTip() { if (tip) tip.hidden = true; }
@@ -228,10 +228,10 @@ function bindMap() {
     .on('mouseout', (e) => { const g = e.target.closest('[data-id]'); if (g && !(e.relatedTarget && g.contains(e.relatedTarget))) { state.hl = []; hideTip(); draw(); } })
     .on('click', (e) => {
       const g = e.target.closest('[data-id]'); if (g) { openPerson(g.dataset.id); return; }
-      const b = e.target.closest('[data-b]'); if (b) { const [x, y] = d3.pointer(e, svg.node()), t = state.t, v = view(); svg.transition().duration(reduce ? 0 : 900).ease(d3.easeCubicInOut).call(zoom.transform, d3.zoomIdentity.translate((v.x0 + v.x1) / 2, (v.y0 + v.y1) / 2).scale(Math.max(SPLIT + 0.4, t.k * 2.6)).translate(-t.invertX(x), -t.invertY(y))); }
+      const b = e.target.closest('[data-b]'); if (b) { const [x, y] = d3.pointer(e, svg.node()), t = state.t, v = view(); svg.transition().duration(reduce ? 0 : 200).ease(d3.easeCubicOut).call(zoom.transform, d3.zoomIdentity.translate((v.x0 + v.x1) / 2, (v.y0 + v.y1) / 2).scale(Math.max(SPLIT + 0.4, t.k * 2.6)).translate(-t.invertX(x), -t.invertY(y))); }
     });
-  $('zin').onclick = () => svg.transition().duration(400).call(zoom.scaleBy, 2);
-  $('zout').onclick = () => svg.transition().duration(400).call(zoom.scaleBy, 0.5);
+  $('zin').onclick = () => svg.transition().duration(180).ease(d3.easeCubicOut).call(zoom.scaleBy, 2);
+  $('zout').onclick = () => svg.transition().duration(180).ease(d3.easeCubicOut).call(zoom.scaleBy, 0.5);
   $('zhome').onclick = () => flyWorld();
 }
 
@@ -354,7 +354,7 @@ function sampleOption(primary = false) {
   return canSample() ? `<button class="option${primary ? ' primary' : ''}" data-act="sample"><span class="oi">${icon('sample', 20)}</span><div><b>Explore with sample people</b><small>28 people around the world. Remove them any time.</small></div></button>` : '';
 }
 function renderWelcome() {
-  pb.innerHTML = `<div class="eb">${icon('spark', 14)}Welcome${firstName() ? ', ' + esc(firstName()) : ''}</div>
+  pb.innerHTML = `<div class="eb">Welcome${firstName() ? ', ' + esc(firstName()) : ''}</div>
    <h2 class="greet">Put the people you care about on a map</h2>
    <p class="sub">Say what you want to do, and Sparkles finds the right people in your network and suggests a small next step.</p>
    <ol class="steps" aria-label="Step 1 of 3"><li class="on"></li><li></li><li></li></ol>
@@ -450,11 +450,11 @@ function briefCard(b) {
   if (p?.next) lines.push(`<div><span>Next step</span><b>${esc(p.next)}</b></div>`);
   if (b.open.length) lines.push(`<div><span>Open</span><b>${b.open.map((f) => esc(f.title)).join('<br>')}</b></div>`);
   return `<div class="brief" data-hl="${esc(e.people.join(','))}">
-   <div class="brief-h"><span class="eb" style="margin:0">${icon('spark', 13)}Meeting brief</span><span class="sp"></span>${e.joinUrl ? `<a class="btn sm go" href="${esc(e.joinUrl)}" target="_blank" rel="noopener">Join</a>` : ''}</div>
+   <div class="brief-h"><span class="eb" style="margin:0">Meeting brief</span><span class="sp"></span>${e.joinUrl ? `<a class="btn sm go" href="${esc(e.joinUrl)}" target="_blank" rel="noopener">Join</a>` : ''}</div>
    ${e.description ? `<div class="desc${open ? ' open' : ''}">${esc(open ? e.description : e.description.replace(/\n{2,}/g, '\n'))}</div>${e.description.split('\n').length > 4 || e.description.length > 220 ? `<button class="lnk" data-more="${esc(e.id)}">${open ? 'Show less' : 'Show more'}</button>` : ''}` : ''}
    ${(e.links || []).length ? `<div class="lchips">${e.links.map((u) => `<a class="tag" href="${esc(u)}" target="_blank" rel="noopener">${icon('globe', 12)}${esc(domainOf(u))}</a>`).join('')}</div>` : ''}
    ${lines.length ? `<div class="bfacts">${lines.join('')}</div>` : ''}
-   ${p ? `<div class="btns"><button class="btn sm" data-nextstep="${esc(p.id)}">${icon('spark', 15)}Suggest a talking point</button><button class="btn sm ghost" data-person="${esc(p.id)}">Open ${esc(fn(p))}</button></div>` : ''}
+   ${p ? `<div class="btns"><button class="btn sm" data-nextstep="${esc(p.id)}">${icon('chat', 15)}Suggest a talking point</button><button class="btn sm ghost" data-person="${esc(p.id)}">Open ${esc(fn(p))}</button></div>` : ''}
   </div>`;
 }
 function captureCard(e) {
@@ -546,7 +546,7 @@ function renderToday() {
    ${due.length ? `<div class="h4">Reach out<span class="cnt">Longest since you talked</span></div>${due.map((p) => `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc(p.doing || [p.role, p.company].filter(Boolean).join(' · ') || p.city || '')}</small></div><span class="pill${since(p) > 120 ? ' warn' : ''}">${esc(ago(p.last))}</span></div>`).join('')}` : ''}
    <div class="h4">Ask Sparkles</div>
    <div class="tags">${IDEAS.map((x, i) => `<button class="tag" data-ideaq="${i}">${esc(x[1].replace(/\s+$/, '…'))}</button>`).join('')}</div>
-   ${!D.ai ? `<p class="hint">${icon('spark', 14)}Offline suggestions: Sparkles matches your words to people’s notes and interests.</p>` : ''}
+   ${!D.ai ? `<p class="hint">Offline suggestions: Sparkles matches your words to people’s notes and interests.</p>` : ''}
    ${saved.length ? `<div class="h4">Your maps<span class="cnt">${saved.length}</span></div>${saved.slice(0, 8).map((s) => `<div class="row" data-openmap="${esc(s.id)}"><span class="globe">${esc(ICONS.includes(s.plans?.[0]?.ic) ? s.plans[0].ic : '◎')}</span><div><b>${esc(s.title)}</b><small>“${esc(s.prompt)}”</small></div></div>`).join('')}` : ''}
    ${recent.length ? `<div class="h4">Recently added</div>${recent.map((p) => `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc([p.role, p.company].filter(Boolean).join(' · ') || 'No details yet')}</small></div><span class="when">${esc(p.city || 'No city')}</span></div>`).join('')}` : ''}`;
 }
@@ -694,9 +694,9 @@ function renderPerson() {
    <div class="phead">${avatar(p, 'lg')}<div style="flex:1;min-width:0"><h3>${esc(p.n)}</h3><p>${esc([p.role, p.company].filter(Boolean).join(' · ') || 'No role yet')}</p>
     <div class="chips">${c ? `<span class="tag"><i style="background:var(${c.c})"></i>${esc(c.l)}</span>` : ''}${p.city ? `<span class="tag">${icon('pin', 13)}${esc(p.city)}</span>` : `<button class="tag" data-editp="${esc(p.id)}">${icon('pin', 13)}Add a city</button>`}${isSampleP(p) ? `<span class="tag">Sample</span>` : ''}</div></div>
     <button class="iconbtn" data-editp="${esc(p.id)}" title="Edit ${esc(fn(p))}" aria-label="Edit ${esc(p.n)}" style="align-self:flex-start">${icon('edit', 18)}</button></div>
-   <div class="actions"><button class="btn go sm" data-nextstep="${esc(p.id)}">${icon('spark', 16)}${p.next ? 'Another idea' : 'Suggest a next step'}</button><button class="btn sm" data-talked="${esc(p.id)}">${icon('check', 16)}We talked today</button></div>
+   <div class="actions"><button class="btn go sm" data-nextstep="${esc(p.id)}">${icon('chat', 16)}${p.next ? 'Another idea' : 'Suggest a next step'}</button><button class="btn sm" data-talked="${esc(p.id)}">${icon('check', 16)}We talked today</button></div>
    <div class="facts"><div>Where<b>${esc(p.city || 'Not set')}</b></div><div>Their time<b>${esc(localTime(p.tz) || '–')}</b></div><div class="${d > 120 && d < Infinity ? 'warn' : ''}"${lt ? ` title="Last ${esc(lt.kind === 'note' ? 'note' : lt.kind === 'talked' ? 'talked' : lt.kind)}"` : ''}>Last contact<b>${esc(lastTxt)}</b></div></div>
-   ${p.next ? `<div class="ai" style="margin-top:16px"><b>${icon('spark', 14)}Next step</b><span id="nextText">${esc(p.next)}</span></div>` : `<div id="nextText" class="sr"></div>`}
+   ${p.next ? `<div class="ai" style="margin-top:16px"><b>Next step</b><span id="nextText">${esc(p.next)}</span></div>` : `<div id="nextText" class="sr"></div>`}
    ${p.doing ? `<div class="now"><span>Right now</span><p>${esc(p.doing)}</p></div>` : ''}
    ${p.tags && p.tags.length ? `<div class="h4">Interests</div><div class="tags">${p.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
    ${personAgenda(p)}
