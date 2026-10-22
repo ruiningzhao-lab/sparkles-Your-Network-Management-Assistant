@@ -291,6 +291,7 @@ const IDEAS = [
   ['Introduce', 'Who in my network should meet each other?'],
   ['Event', 'Who did I meet at '],
 ];
+let CUR_IDEAS = IDEAS;
 function drawBar() {
   $('modes').innerHTML = Object.entries(MODES).map(([k, m]) => `<button data-mode="${esc(k)}" aria-pressed="${state.mode === k}">${m.c ? `<i style="background:var(${m.c})"></i>` : ''}${esc(m.l)}</button>`).join('');
   $('layers').innerHTML = `<button class="chip" data-layer="disc" aria-pressed="${state.layers.disc}"><svg viewBox="0 0 16 8"><rect x="4.5" y=".5" width="7" height="7" rx="2" fill="none" stroke="var(--m-disc)" stroke-width="1.4"/></svg>Places</button>`;
@@ -306,7 +307,7 @@ function lensTitle() {
   const s = curMap(); return s ? [s.chip || 'Map', s.title] : ['Map', ''];
 }
 function useIdea(i) {
-  const inp = $('askIn'); const t = IDEAS[i][1]; inp.value = t; inp.focus();
+  const inp = $('askIn'); const t = CUR_IDEAS[i][1]; inp.value = t; inp.focus();
   const gap = t.indexOf('  '); const pos = gap >= 0 ? gap + 1 : t.length; inp.setSelectionRange(pos, pos);
 }
 function syncAskPlaceholder() {
@@ -548,7 +549,98 @@ function threadRow(t, kind) {
    <div><span class="th-h">${head}</span><small class="subj">${icon('mail', 13)}${esc(t.subject)}</small>
    <div class="ra">${id ? `<button class="lnk" data-draft="${kind === 'reply' ? 'reply' : 'nudge'}|${esc(id)}|${esc(t.id)}">${kind === 'reply' ? 'Draft a reply' : 'Nudge'}</button>` : ''}${kind === 'reply' ? `<button class="lnk" data-thact="done|${esc(t.id)}">Done</button><button class="lnk" data-thact="snoozed|${esc(t.id)}">Snooze</button>` : `<button class="lnk" data-thact="dismissed|${esc(t.id)}">Dismiss</button>`}</div>${draftBox('t-' + t.id)}</div></div>`;
 }
-function agendaModules(m) {
+function circleKind() {
+  if (state.mode === 'all') return 'all';
+  if (state.mode === 'work') return 'work';
+  if (state.mode === 'family') return 'family';
+  if (state.mode === 'friends') return 'friends';
+  return 'other';
+}
+function personInMode(id) {
+  if (state.mode === 'all') return true;
+  const p = byId(id);
+  return p && p.m === state.mode;
+}
+function planInMode(p) {
+  if (state.mode === 'all') return true;
+  return (p.with || []).some((id) => personInMode(id));
+}
+function mapInMode(s) {
+  if (state.mode === 'all') return true;
+  if (s.m === state.mode) return true;
+  const ids = [...(s.sec || []).flatMap(secOf).flatMap((x) => x[1] || []), ...(s.plans || []).flatMap((p) => p.with || [])];
+  return ids.length > 0 && ids.every((id) => personInMode(id));
+}
+function ideasForMode() {
+  const k = circleKind();
+  if (k === 'work') return [['Prep', 'Who should I prep for '], ['Follow up', 'Who am I overdue emailing about '], ['Intro', 'Who at work should meet '], ['Help', 'Who could help me with '], ['Travel', 'Work trip to ']];
+  if (k === 'friends') return [['Coffee', 'Who should I grab coffee with '], ['Plan', 'Who should I plan something fun with '], ['Catch up', 'Which friends should I check in with '], ['Visit', 'Friends to see in '], ['Group', 'Who should I invite to ']];
+  if (k === 'family') return [['Call', 'Which family should I call '], ['Visit', 'When should I visit '], ['Errand', 'Pick up from '], ['Dinner', 'Plan dinner with '], ['Help', 'Who in the family needs ']];
+  return IDEAS;
+}
+function filterTodayMods(m) {
+  if (!m || state.mode === 'all') return m;
+  const has = personInMode;
+  const evOk = (e) => e.people.some(has);
+  const meetings = m.meetings.filter(evOk);
+  const next = meetings.find((e) => ms(e.end) > Date.now()) || null;
+  let brief = null;
+  if (next) {
+    const pid = next.people.find(has) || next.people[0];
+    const notes = AG.data?.notes || [];
+    const threads = [...m.needsReply, ...m.waiting];
+    brief = {
+      event: next,
+      personId: pid,
+      lastNote: pid ? notes.find((n) => n.people.includes(pid)) : undefined,
+      lastThread: pid ? threads.filter((t) => t.people.includes(pid)).sort((x, y) => ms(y.lastAt) - ms(x.lastAt))[0] : undefined,
+      open: m.due.filter((f) => f.personId === pid),
+    };
+  }
+  const after = m.after && evOk(m.after) ? m.after : null;
+  const needsReply = m.needsReply.filter((t) => t.people.some(has));
+  const waiting = m.waiting.filter((t) => t.people.some(has));
+  const due = m.due.filter((f) => has(f.personId));
+  const coming = m.coming.map((g) => ({ day: g.day, events: g.events.filter(evOk) })).filter((g) => g.events.length);
+  const trips = m.trips.filter((t) => t.people.some(has));
+  const reconnect = m.reconnect.filter((r) => has(r.id));
+  const notes = m.notes.filter((n) => n.people.some(has));
+  const lens = {};
+  for (const f of due) lens[f.personId] = 'due';
+  for (const t of needsReply) for (const id of t.people) if (has(id)) lens[id] = 'reply';
+  for (const e of meetings) for (const id of e.people) if (has(id)) lens[id] = 'meet';
+  return { ...m, meetings, next, brief, after, needsReply, waiting, due, coming, trips, reconnect, notes, lens };
+}
+function casualPromptFor(p, kind) {
+  const name = fn(p);
+  if (p.doing && /pick up|drop off|school|soccer|doctor/i.test(p.doing)) return p.doing.replace(/\.$/, '');
+  if (kind === 'family') {
+    const opts = [`Pick up from ${name}`, `Call ${name}`, `Plan a visit with ${name}`, `Check in with ${name}`];
+    return opts[(p.id.length + Math.floor(since(p) / 14)) % opts.length];
+  }
+  if (p.doing) return `Ask ${name} about ${p.doing.replace(/\.$/, '').toLowerCase()}`;
+  const city = p.city ? p.city.split(',')[0].trim() : '';
+  const opts = [`Grab coffee with ${name}`, `Plan something with ${name}`, `Check in with ${name}`, city ? `See ${name} in ${city}` : `Catch up with ${name}`];
+  return opts[(p.id.length + Math.floor(since(p) / 21)) % opts.length];
+}
+function casualIdeaRows(kind) {
+  const people = D.people.filter((p) => state.mode === 'all' || p.m === state.mode);
+  return people
+    .filter((p) => p.t !== 'disc')
+    .sort((a, b) => since(b) - since(a))
+    .slice(0, 6)
+    .map((p) => {
+      const idea = casualPromptFor(p, kind);
+      return `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc(idea)}</small>
+       <div class="ra"><button class="lnk" data-runask="${esc(idea)}">Map it</button><button class="lnk" data-nextstep="${esc(p.id)}">Suggest</button></div></div></div>`;
+    })
+    .join('');
+}
+function reconnectRows(rc, title, sub) {
+  if (!rc.length) return '';
+  return `<div class="h4">${esc(title)}<span class="cnt">${esc(sub)}</span></div>${rc.map((r) => { const p = byId(r.id); return `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc(r.days >= 60 ? Math.round(r.days / 30) + ' months' : r.days + ' days')} since you last ${esc(KIND_VERB[r.kind])}</small></div><span class="pill${r.days > 120 ? ' warn' : ''}">${esc(ago(new Date(Date.now() - r.days * DAY).toISOString()))}</span></div>`; }).join('')}`;
+}
+function agendaModulesWork(m) {
   const d = AG.data, out = [];
   if (!d.demo && !d.connected) out.push(connectCard());
   if (m.after) out.push(captureCard(m.after));
@@ -559,6 +651,22 @@ function agendaModules(m) {
   if (m.due.length) out.push(`<div class="h4" id="ag-due">Follow-ups due<span class="cnt">${m.due.length}</span></div>${m.due.map((f) => fuRow(f)).join('')}`);
   if (m.needsReply.length) out.push(`<div class="h4" id="ag-reply">Needs your reply<span class="cnt">${m.needsReply.length}</span></div>${m.needsReply.map((t) => threadRow(t, 'reply')).join('')}`);
   if (m.waiting.length) out.push(`<div class="h4">Waiting on them<span class="cnt">${m.waiting.length}</span></div>${m.waiting.map((t) => threadRow(t, 'wait')).join('')}`);
+  return out.join('');
+}
+function agendaModulesPersonal(m, kind) {
+  const out = [];
+  const ideas = casualIdeaRows(kind);
+  if (ideas) out.push(`<div class="h4" id="ag-ideas">${kind === 'family' ? 'Family this week' : 'Ideas with friends'}<span class="cnt">Small next steps</span></div>${ideas}`);
+  if (m.meetings.length) {
+    const left = m.meetings.filter((e) => ms(e.end) > Date.now()).length;
+    out.push(`<div class="h4" id="ag-meet">On the calendar<span class="cnt">${left ? left + ' to go' : 'All done'}</span></div><div class="tl">${m.meetings.map((e) => evRow(e, { brief: m.next && e.id === m.next.id }) + (m.brief && e.id === m.brief.event.id ? briefCard(m.brief) : '')).join('')}</div>`);
+  }
+  if (m.due.length) out.push(`<div class="h4" id="ag-due">Don’t forget<span class="cnt">${m.due.length}</span></div>${m.due.map((f) => fuRow(f)).join('')}`);
+  out.push(reconnectRows(m.reconnect.slice(0, 5), kind === 'family' ? 'Check in' : 'Catch up', 'Past your usual rhythm'));
+  return out.join('');
+}
+function agendaModulesShared(m) {
+  const d = AG.data, out = [];
   if (m.trips.length || m.coming.length) {
     out.push(`<div class="h4">Coming up<span class="cnt">Next 7 days</span></div>` + m.trips.map((t) => {
       const a = ms(t.event.start), b = ms(t.event.end) - 1, span = sod(a) === sod(b) ? dayName(a) : `${wd(a)}–${wd(b)}`;
@@ -566,39 +674,62 @@ function agendaModules(m) {
        <div class="btns"><button class="btn sm go" data-place="${esc(t.ck)}">See who’s there</button><button class="btn sm" data-tripask="${esc(`I’m in ${t.city} ${span}. Who should I see?`)}">Plan the trip</button></div></div></div></div>`;
     }).join('') + m.coming.map((g) => `<div class="dayh">${esc(dayName(g.day))}</div>${g.events.map((e) => evRow(e, { compact: true })).join('')}`).join(''));
   }
-  const rc = m.reconnect.filter((r) => state.mode === 'all' || byId(r.id)?.m === state.mode).slice(0, 5);
-  if (rc.length) out.push(`<div class="h4">Reconnect<span class="cnt">Past your usual rhythm</span></div>${rc.map((r) => { const p = byId(r.id); return `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc(r.days >= 60 ? Math.round(r.days / 30) + ' months' : r.days + ' days')} since you last ${esc(KIND_VERB[r.kind])}</small></div><span class="pill${r.days > 120 ? ' warn' : ''}">${esc(ago(new Date(Date.now() - r.days * DAY).toISOString()))}</span></div>`; }).join('')}`);
-  if (m.suggested.length) out.push(`<div class="h4">New people<span class="cnt">Not on your map yet</span></div>${m.suggested.map((g) => `<div class="row sg"><span class="av" style="background:var(--sunk2);color:var(--ink2)">${esc(ini(g.name))}</span><div><b>${esc(g.name)}</b><small>${esc([g.meetings ? `You met ${g.meetings === 1 ? 'once' : g.meetings === 2 ? 'twice' : g.meetings + ' times'} this month` : '', g.threads ? `${g.threads} email ${g.threads === 1 ? 'thread' : 'threads'}` : ''].filter(Boolean).join(' · '))}</small>
+  const k = circleKind();
+  if (k === 'all' || k === 'work') {
+    const rc = m.reconnect.slice(0, 5);
+    out.push(reconnectRows(rc, 'Reconnect', 'Past your usual rhythm'));
+  }
+  if (m.suggested.length && state.mode === 'all') out.push(`<div class="h4">New people<span class="cnt">Not on your map yet</span></div>${m.suggested.map((g) => `<div class="row sg"><span class="av" style="background:var(--sunk2);color:var(--ink2)">${esc(ini(g.name))}</span><div><b>${esc(g.name)}</b><small>${esc([g.meetings ? `You met ${g.meetings === 1 ? 'once' : g.meetings === 2 ? 'twice' : g.meetings + ' times'} this month` : '', g.threads ? `${g.threads} email ${g.threads === 1 ? 'thread' : 'threads'}` : ''].filter(Boolean).join(' · '))}</small>
      <div class="ra"><button class="lnk" data-sgadd="${esc(g.email)}">Add to map</button><button class="lnk" data-sgno="${esc(g.email)}">Ignore</button></div></div></div>`).join('')}`);
   if (m.notes.length) out.push(`<div class="h4">Recent notes</div>${m.notes.map((n) => `<div class="nrow" data-person="${esc(n.people[0])}" data-hl="${esc(n.people.join(','))}" tabindex="0"><p>${esc(n.body)}</p><small>${esc(namesOf(n.people).join(', '))} · ${esc(agoLong(n.at))}</small></div>`).join('')}`);
   return out.join('');
 }
+function agendaModules(m) {
+  const fm = filterTodayMods(m);
+  const k = circleKind();
+  if (k === 'friends' || k === 'family') return agendaModulesPersonal(fm, k) + agendaModulesShared(fm);
+  return agendaModulesWork(fm) + agendaModulesShared(fm);
+}
+function todayTiles(m) {
+  const k = circleKind();
+  const fm = m ? filterTodayMods(m) : null;
+  const ppl = D.people.filter((p) => state.mode === 'all' || p.m === state.mode);
+  const planned = allPlans().filter((p) => p.planned && planInMode(p));
+  const cities = new Set(ppl.filter(placed).map((p) => p.ck)).size;
+  if (fm && (AG.data.demo || AG.data.connected)) {
+    if (k === 'friends' || k === 'family') {
+      const catchUp = fm.reconnect.length || ppl.filter((p) => since(p) >= 30 && since(p) < Infinity).length;
+      return `<div class="tiles"><button class="tile" data-jump="ag-ideas"><b>${Math.min(ppl.length, 6)}</b><small>${k === 'family' ? 'Family ideas' : 'Friend ideas'}</small></button><button class="tile" data-jump="ag-meet"><b>${fm.meetings.length}</b><small>On the calendar</small></button><button class="tile" data-jump="ag-due"><b>${catchUp}</b><small>Catch up</small></button></div>`;
+    }
+    return `<div class="tiles"><button class="tile" data-jump="ag-meet"><b>${fm.meetings.length}</b><small>Meetings today</small></button><button class="tile" data-jump="ag-reply"><b>${fm.needsReply.length}</b><small>Need a reply</small></button><button class="tile${fm.due.some((f) => f.due && ms(f.due) < sod()) ? ' warn' : ''}" data-jump="ag-due"><b>${fm.due.length}</b><small>Follow-ups due</small></button></div>`;
+  }
+  return `<div class="tiles"><button class="tile" data-tab="people"><b>${ppl.length}</b><small>People</small></button><button class="tile" data-act="world"><b>${cities}</b><small>Cities</small></button><button class="tile" data-tab="plans"><b>${planned.length}</b><small>Plans</small></button></div>`;
+}
 function renderToday() {
+  CUR_IDEAS = ideasForMode();
   const ppl = D.people.filter((p) => state.mode === 'all' || p.m === state.mode), unpl = D.people.filter((p) => !placed(p)).length;
   const recent = [...ppl].sort((a, b) => (b.added || 0) - (a.added || 0)).slice(0, 4);
-  const saved = Object.values(D.maps).sort((a, b) => (b.at || 0) - (a.at || 0));
-  const planned = allPlans().filter((p) => p.planned).sort((a, b) => b.planned - a.planned);
+  const saved = Object.values(D.maps).filter(mapInMode).sort((a, b) => (b.at || 0) - (a.at || 0));
+  const planned = allPlans().filter((p) => p.planned && planInMode(p)).sort((a, b) => b.planned - a.planned);
   const samples = D.people.filter(isSampleP).length;
-  const cities = new Set(D.people.filter(placed).map((p) => p.ck)).size;
-  const ag = hasAgenda() && D.people.length > 0, m = ag && AG.data ? AG.mods : null;
+  const ag = hasAgenda() && D.people.length > 0, raw = ag && AG.data ? AG.mods : null, m = raw ? filterTodayMods(raw) : null;
+  const modeLbl = state.mode !== 'all' && MODES[state.mode] ? MODES[state.mode].l : '';
   const unplCard = `<div class="card warn"><div class="cardhead">${icon('pin', 20)}<div><h3>${unpl} ${unpl === 1 ? 'person needs' : 'people need'} a city</h3><p>Add a city to put them on the map.</p><button class="btn sm go" data-act="place">Add cities</button></div></div></div>`;
   const due = m ? [] : ppl.filter((p) => since(p) >= 45 && since(p) < Infinity).sort((a, b) => since(b) - since(a)).slice(0, 5);
-  const tiles = m && (AG.data.demo || AG.data.connected)
-    ? `<div class="tiles"><button class="tile" data-jump="ag-meet"><b>${m.meetings.length}</b><small>Meetings today</small></button><button class="tile" data-jump="ag-reply"><b>${m.needsReply.length}</b><small>Need a reply</small></button><button class="tile${m.due.some((f) => f.due && ms(f.due) < sod()) ? ' warn' : ''}" data-jump="ag-due"><b>${m.due.length}</b><small>Follow-ups due</small></button></div>`
-    : `<div class="tiles"><button class="tile" data-tab="people"><b>${D.people.length}</b><small>People</small></button><button class="tile" data-act="world"><b>${cities}</b><small>Cities</small></button><button class="tile" data-tab="plans"><b>${planned.length}</b><small>Plans</small></button></div>`;
+  const tiles = todayTiles(raw);
   pb.innerHTML = `
    <h2 class="greet">${greetWord()}${firstName() ? ', ' + esc(firstName()) : ''}</h2>
-   <p class="sub">${esc(today())} · <button class="homechip" data-act="home" title="Change home city">${icon('pin', 14)}${esc(home().city)}</button></p>
-   ${ag && AG.data ? agendaBar(m) : ''}
+   <p class="sub">${modeLbl ? `<strong>${esc(modeLbl)}</strong> · ` : ''}${esc(today())} · <button class="homechip" data-act="home" title="Change home city">${icon('pin', 14)}${esc(home().city)}</button></p>
+   ${ag && AG.data ? agendaBar(m || raw) : ''}
    ${D.people.length === 0 ? addPeopleCard() : tiles}
    ${samples ? `<div class="banner">${icon('sample', 18)}<span>You’re exploring ${samples} sample people.</span><button class="btn sm ghost" data-act="clearsample">Remove</button></div>` : ''}
    ${unpl && !m ? unplCard : ''}
    ${ag && !AG.data ? (AG.error ? `<div class="banner err">${icon('alert', 18)}<span>Couldn’t load your agenda. Your people and maps are fine.</span><button class="btn sm ghost" data-act="agrefresh">Try again</button></div>` : `<div aria-busy="true" aria-label="Loading your agenda"><div class="sk c"></div>${'<div class="skrow"><span class="sk"></span><div><div class="sk l"></div><div class="sk l"></div></div></div>'.repeat(3)}</div>`) : ''}
-   ${m ? agendaModules(m) + (unpl ? unplCard : '') : ''}
+   ${m ? agendaModules(raw) + (unpl ? unplCard : '') : ''}
    ${planned.length ? `<div class="h4">Your plans<span class="cnt">${planned.length}</span></div>${planned.slice(0, 5).map(planRow).join('')}` : ''}
    ${due.length ? `<div class="h4">Reach out<span class="cnt">Longest since you talked</span></div>${due.map((p) => `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc(p.doing || [p.role, p.company].filter(Boolean).join(' · ') || p.city || '')}</small></div><span class="pill${since(p) > 120 ? ' warn' : ''}">${esc(ago(p.last))}</span></div>`).join('')}` : ''}
    <div class="h4">Ask Sparkles</div>
-   <div class="tags">${IDEAS.map((x, i) => `<button class="tag" data-ideaq="${i}">${esc(x[1].replace(/\s+$/, '…'))}</button>`).join('')}</div>
+   <div class="tags">${CUR_IDEAS.map((x, i) => `<button class="tag" data-ideaq="${i}">${esc(x[1].replace(/\s+$/, '…'))}</button>`).join('')}</div>
    ${!D.ai ? `<p class="hint">Offline suggestions: Sparkles matches your words to people’s notes and interests.</p>` : ''}
    ${saved.length ? `<div class="h4">Your maps<span class="cnt">${saved.length}</span></div>${saved.slice(0, 8).map((s) => `<div class="row" data-openmap="${esc(s.id)}"><span class="globe">${esc(ICONS.includes(s.plans?.[0]?.ic) ? s.plans[0].ic : '◎')}</span><div><b>${esc(s.title)}</b><small>“${esc(s.prompt)}”</small></div></div>`).join('')}` : ''}
    ${recent.length ? `<div class="h4">Recently added</div>${recent.map((p) => `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc([p.role, p.company].filter(Boolean).join(' · ') || 'No details yet')}</small></div><span class="when">${esc(p.city || 'No city')}</span></div>`).join('')}` : ''}`;
@@ -917,6 +1048,7 @@ function agendaClick(t) {
   const mo = t.closest('[data-more]'); if (mo) { state.more[mo.dataset.more] = !state.more[mo.dataset.more]; renderPanel(true); return true; }
   const pl = t.closest('[data-place]'); if (pl) { setLens('place:' + pl.dataset.place); return true; }
   const ta = t.closest('[data-tripask]'); if (ta) { $('askIn').value = ta.dataset.tripask; runAgent(ta.dataset.tripask); return true; }
+  const ra = t.closest('[data-runask]'); if (ra) { $('askIn').value = ra.dataset.runask; runAgent(ra.dataset.runask); return true; }
   const jp = t.closest('[data-jump]'); if (jp) { $(jp.dataset.jump)?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' }); return true; }
   const sk = t.closest('[data-capskip]'); if (sk) { const e = AG.data.events.find((x) => x.id === sk.dataset.capskip); if (e) { e.captured = true; recompute(); renderPanel(true); if (e.demo) demoAct(e.id, 'captured').catch(toastErr); } return true; }
   const sa = t.closest('[data-sgadd]'); if (sa) { const g = AG.data.suggested.find((x) => x.email === sa.dataset.sgadd); state.edit = { id: null, from: 'today', prefill: { n: g.name, email: g.email } }; state.tab = 'people'; state.view = 'today'; if (mobile()) $('panel').classList.add('big'); draw(); renderPanel(); return true; }
