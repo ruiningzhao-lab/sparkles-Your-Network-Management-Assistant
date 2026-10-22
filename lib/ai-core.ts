@@ -123,6 +123,13 @@ Return JSON only, in this shape:
     const hits = cand
       .filter((p) => words.some((w) => [p.role, p.company, (p.tags || []).join(' '), p.note, p.doing, p.city].join(' ').toLowerCase().includes(w)))
       .slice(0, 8);
+    const near = hits.filter((p) => p.ck && p.ck === home.ck);
+    const plans: Plan[] = [];
+    const first = (p: Person) => p.n.split(' ')[0];
+    if (near[0]) plans.push({ id: `${id}_0`, kind: 'Meet up', ic: '☕', when: 'this week', title: `Grab coffee with ${first(near[0])}`, with: [near[0].id], why: `${first(near[0])} lives in ${home.city} and ${near[0].doing ? 'is ' + near[0].doing.charAt(0).toLowerCase() + near[0].doing.slice(1) : 'fits what you asked for'}.`, where: `A café near you in ${home.city}` });
+    hits.filter((p) => p !== near[0]).slice(0, plans.length ? 2 : 3).forEach((p) =>
+      plans.push({ id: `${id}_${plans.length}`, kind: p.ck === home.ck ? 'Meet up' : 'Message', ic: p.ck === home.ck ? '☕' : '✉', when: 'this week', title: `Ask ${first(p)} about it`, with: [p.id], why: p.doing ? `${first(p)} is ${p.doing.charAt(0).toLowerCase() + p.doing.slice(1)}.` : `${first(p)} mentions this in your notes.`, where: p.ck === home.ck ? home.city : p.city ? `Video call (${p.city})` : 'Message' }),
+    );
     return {
       fallback: true,
       map: {
@@ -131,9 +138,9 @@ Return JSON only, in this shape:
         chip: 'Search',
         m: '',
         sub: hits.length
-          ? `${hits.length} people mention words from your request.`
+          ? `${hits.length} ${hits.length === 1 ? 'person mentions' : 'people mention'} words from your request.`
           : 'No one in your network mentions this yet. Add interests and notes to people so Sparkles can find them.',
-        plans: [],
+        plans,
         sec: hits.length ? [{ h: 'From your network', ids: hits.map((p) => p.id) }] : [],
         disc: [],
       },

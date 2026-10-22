@@ -5,3 +5,7 @@ node_modules
 .data
 *.tsbuildinfo
 dist
+.DS_Store
+.vercel
+.env.*
+!.env.example
