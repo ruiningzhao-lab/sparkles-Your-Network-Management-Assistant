@@ -79,10 +79,10 @@ a{color:var(--accent)}
 .land{fill:var(--land);stroke:var(--coast);stroke-width:.75;vector-effect:non-scaling-stroke}
 .borders{fill:none;stroke:var(--coast);stroke-width:.45;vector-effect:non-scaling-stroke;opacity:.55}
 .grat{fill:none;stroke:var(--coast);stroke-width:.35;opacity:.22;vector-effect:non-scaling-stroke}
-.mk{cursor:pointer;transition:transform var(--dur-2) var(--ease)}
-.mk:hover{transform:scale(1.06)}
+.mk{cursor:pointer}
 .mk>circle:not(.halo),.mk>rect{filter:none}
-.mk:hover>circle:not(.halo){filter:none}
+.mk:hover>circle:not(.halo),.mk.hov>circle:not(.halo){stroke:var(--ink);stroke-width:2}
+.mk:hover>rect,.mk.hov>rect{stroke-width:2}
 .mk text{pointer-events:none}
 .ini{font:700 8px var(--f-body);fill:#fff;text-anchor:middle;dominant-baseline:central}
 .ini.out{fill:var(--ink)}

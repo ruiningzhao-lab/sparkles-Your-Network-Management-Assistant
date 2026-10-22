@@ -262,9 +262,16 @@ function showTip(p, e) { tip.innerHTML = `<b>${esc(p.n)}</b><span>${esc(p.t === 
 function placeTip(e) { let x = e.clientX + 14, y = e.clientY + 14; if (x > innerWidth - 260) x -= 270; if (y > innerHeight - 100) y -= 110; tip.style.left = x + 'px'; tip.style.top = y + 'px'; }
 function bindMap() {
   tip = $('tip');
-  gMk.on('mouseover', (e) => { const g = e.target.closest('[data-id]'); if (!g) return; const p = byId(g.dataset.id); if (!p || (state.hl.length === 1 && state.hl[0] === p.id)) return; state.hl = [p.id]; draw(); showTip(p, e); })
+  // Tooltip + light CSS highlight only — never redraw on map hover (redraw replaces nodes and causes shake).
+  gMk.on('mouseover', (e) => {
+    const g = e.target.closest('[data-id]'); if (!g) return;
+    const p = byId(g.dataset.id); if (!p) return;
+    gMk.selectAll('[data-id].hov').classed('hov', false);
+    d3.select(g).classed('hov', true);
+    showTip(p, e);
+  })
     .on('mousemove', (e) => { if (!tip.hidden) placeTip(e); })
-    .on('mouseout', (e) => { const g = e.target.closest('[data-id]'); if (g && !(e.relatedTarget && g.contains(e.relatedTarget))) { state.hl = []; hideTip(); draw(); } })
+    .on('mouseleave', () => { gMk.selectAll('[data-id].hov').classed('hov', false); hideTip(); })
     .on('click', (e) => {
       const g = e.target.closest('[data-id]'); if (g) { openPerson(g.dataset.id); return; }
       const b = e.target.closest('[data-b]'); if (b) { const [x, y] = d3.pointer(e, svg.node()), t = state.t, v = view(); svg.transition().duration(reduce ? 0 : 200).ease(d3.easeCubicOut).call(zoom.transform, d3.zoomIdentity.translate((v.x0 + v.x1) / 2, (v.y0 + v.y1) / 2).scale(Math.max(SPLIT + 0.4, t.k * 2.6)).translate(-t.invertX(x), -t.invertY(y))); }
