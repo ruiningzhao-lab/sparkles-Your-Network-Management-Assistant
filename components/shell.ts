@@ -16,7 +16,7 @@ export function shellHTML(appName: string) {
   <div class="brand-m"><span>${appName}</span></div>
   <div class="center">
     <form class="prompt" id="askForm" role="search">
-      <input id="askIn" placeholder="What do you want to do? Sparkles finds the people." autocomplete="off" aria-label="Ask Sparkles what you want to do">
+      <input id="askIn" placeholder="What do you want to do?" autocomplete="off" aria-label="Ask Sparkles what you want to do">
       <button class="btn go" type="submit">Map it</button>
     </form>
     <div class="filters">

@@ -81,7 +81,9 @@ const home = () => D.profile?.home || null;
 const secOf = (x) => (Array.isArray(x) ? x : [x.h, x.ids, x.why, x.note]);
 
 /* ================= map ================= */
-let svg, gBase, pGrat, pLand, pBord, gStr, gMk, gYou, zoom, land, borders;
+let svg, gBase, pGrat, pLand, pBord, gTether, gStr, gMk, gYou, zoom, land, borders;
+const ASK_PH_LONG = 'What do you want to do? Sparkles finds the people.';
+const ASK_PH_SHORT = 'What do you want to do?';
 let W = 0, H = 0, proj = d3.geoNaturalEarth1();
 const SPLIT = 3.2;
 // The part of the screen not covered by the rail, prompt and panel, so pins never hide under them.
@@ -101,6 +103,7 @@ function initMap() {
   pGrat = gBase.append('path').attr('class', 'grat');
   pLand = gBase.append('path').attr('class', 'land');
   pBord = gBase.append('path').attr('class', 'borders');
+  gTether = svg.append('g').attr('class', 'tethers');
   gStr = svg.append('g'); gMk = svg.append('g'); gYou = svg.append('g');
   zoom = d3.zoom().scaleExtent([0.8, 60]).on('zoom', (e) => { state.t = e.transform; draw(); hideTip(); });
   svg.call(zoom).on('dblclick.zoom', null);
@@ -123,6 +126,39 @@ function lensSet() {
   return new Set([...(m.sec || []).map(secOf).flatMap((x) => x[1] || []), ...(m.plans || []).flatMap((p) => p.with || []), ...(m.disc || []).map((d) => d.id)]);
 }
 function discItems() { return lensSet() ? curMap()?.disc || [] : []; }
+/** Push cluster / city markers apart on screen while staying near their geo anchor. */
+function separateGroups(cl, k, C) {
+  const nodes = cl.map((g) => {
+    const indiv = g.items.length === 1 || k >= SPLIT + 1.1;
+    const n = g.items.length;
+    const r = indiv ? (n <= 1 ? 12 : 14 + C * Math.sqrt(n + 1) * 1.15) : 8 + Math.sqrt(n) * 2.8;
+    g._ax = g.x; g._ay = g.y;
+    return { g, ax: g.x, ay: g.y, x: g.x, y: g.y, r };
+  });
+  const maxOff = k < SPLIT ? 80 : 52;
+  const pad = k < SPLIT ? 14 : 9;
+  const iters = k < SPLIT ? 18 : 12;
+  for (let iter = 0; iter < iters; iter++) {
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i], b = nodes[j];
+        let dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
+        if (d < 0.01) { dx = (j - i) * 0.21 + 0.05; dy = (i - j) * 0.17; d = Math.hypot(dx, dy); }
+        const need = a.r + b.r + pad;
+        if (d < need) {
+          const push = (need - d) / 2, ux = dx / d, uy = dy / d;
+          a.x -= ux * push; a.y -= uy * push;
+          b.x += ux * push; b.y += uy * push;
+        }
+      }
+    }
+    for (const n of nodes) {
+      const dx = n.x - n.ax, dy = n.y - n.ay, d = Math.hypot(dx, dy);
+      if (d > maxOff) { n.x = n.ax + (dx / d) * maxOff; n.y = n.ay + (dy / d) * maxOff; }
+    }
+  }
+  for (const n of nodes) { n.g.x = n.x; n.g.y = n.y; }
+}
 function visible() {
   const L = lensSet();
   const ppl = D.people.filter((p) => {
@@ -139,22 +175,25 @@ function draw() {
   const pt = (lat, lng) => { const p = proj([lng, lat]); return [t.applyX(p[0]), t.applyY(p[1])]; };
   const groups = d3.groups(items, (d) => d.ck || `${d.lat},${d.lng}`).map(([ck, arr]) => { const [x, y] = pt(arr[0].lat, arr[0].lng); return { cities: [arr[0].city || ''], items: arr, x, y }; }).sort((a, b) => b.items.length - a.items.length);
   const C = Math.min(24, 10 + Math.max(0, k - SPLIT) * 1.35);
-  const md = k < SPLIT ? 30 : C * 3.2, cl = [];
+  const md = k < SPLIT ? 24 : C * 2.8, cl = [];
   for (const g of groups) {
     const m = cl.find((o) => Math.hypot(o.x - g.x, o.y - g.y) < md);
     if (m) { const a = m.items.length, b = g.items.length; m.x = (m.x * a + g.x * b) / (a + b); m.y = (m.y * a + g.y * b) / (a + b); m.items.push(...g.items); m.cities.push(...g.cities); }
     else cl.push(g);
   }
+  separateGroups(cl, k, C);
   const h = home(); let you = h ? pt(h.lat, h.lng) : null;
-  let mk = '', labels = ''; const now = performance.now();
+  let mk = '', labels = '', tethers = ''; const now = performance.now();
   cl.forEach((g, gi) => {
-    const indiv = g.items.length === 1 || k >= SPLIT;
+    const indiv = g.items.length === 1 || k >= SPLIT + 1.1;
+    if (g._ax != null && Math.hypot(g.x - g._ax, g.y - g._ay) > 6) tethers += `<line class="tether" x1="${g._ax}" y1="${g._ay}" x2="${g.x}" y2="${g.y}"/>`;
     const isHome = you && Math.hypot(g.x - you[0], g.y - you[1]) < (k < SPLIT ? 30 : C * 3.2);
     if (indiv) {
       const ord = [...g.items].sort((a, b) => (a.t === 'disc') - (b.t === 'disc'));
       const off = isHome || g.items.length > 1 ? 1 : 0;
       const cx = isHome ? you[0] : g.x, cy = isHome ? you[1] : g.y;
-      ord.forEach((p, i) => { const j = i + off, a = j * 2.39996, r = j ? C * Math.sqrt(j) : 0; p._x = cx + r * Math.cos(a); p._y = cy + r * Math.sin(a); p._b = null; });
+      const pinStep = Math.max(17, C * 1.05);
+      ord.forEach((p, i) => { const j = i + off, a = j * 2.39996, r = j ? pinStep * Math.sqrt(j) * 1.2 : 0; p._x = cx + r * Math.cos(a); p._y = cy + r * Math.sin(a); p._b = null; });
       const n = g.items.length, nl = L ? g.items.filter((q) => L.has(q.id)).length : 0;
       g.items.forEach((p) => {
         const on = L && L.has(p.id), dimd = L && !on && p.id !== state.sel, sel = p.id === state.sel, hov = HL.has(p.id);
@@ -170,14 +209,14 @@ function draw() {
       if (n > 1) { const rr = C * Math.sqrt(n + 1); labels += `<text class="cityl" x="${cx}" y="${cy - rr - 8}">${esc([...new Set(g.cities)].slice(0, 3).join(' · '))}</text>`; }
     } else {
       g.items.forEach((p) => { p._x = g.x; p._y = g.y; p._b = gi; });
-      const r = 7 + Math.sqrt(g.items.length) * 2.5;
-      if (isHome) you = [g.x + r * 0.72, g.y - r * 0.72];
+      const r = 6 + Math.sqrt(g.items.length) * 2.2;
+      if (isHome) you = [g.x + r * 0.85, g.y - r * 0.85];
       const arcs = d3.pie().sort(null).value((d) => d[1])(d3.rollups(g.items, (v) => v.length, (d) => (d.t === 'disc' ? 'disc' : circleOf(d) ? d.m : 'none')));
-      const arc = d3.arc().innerRadius(r - 4.5).outerRadius(r);
+      const arc = d3.arc().innerRadius(Math.max(2, r - 4)).outerRadius(r);
       const hl = (L && g.items.some((p) => L.has(p.id))) || g.items.some((p) => HL.has(p.id));
       const fill = (k2) => (k2 === 'disc' ? 'var(--m-disc)' : k2 === 'none' ? 'var(--c-none)' : `var(${MODES[k2].c})`);
-      mk += `<g class="mk${L && !hl ? ' dim' : ''}" data-b="${gi}" transform="translate(${g.x},${g.y})">` + (hl ? `<circle r="${r + 4}" fill="none" stroke="var(--string)" stroke-width="2"/>` : '') +
-        `<circle r="${r}" fill="var(--surface)" stroke="var(--line)"/>` + arcs.map((a) => `<path d="${arc(a)}" fill="${fill(a.data[0])}"/>`).join('') + `<text class="ct">${g.items.length}</text></g>`;
+      mk += `<g class="mk cluster${L && !hl ? ' dim' : ''}" data-b="${gi}" transform="translate(${g.x},${g.y})">` + (hl ? `<circle r="${r + 3}" fill="none" stroke="var(--string)" stroke-width="1.5"/>` : '') +
+        `<circle r="${r}" fill="var(--land)" stroke="var(--coast)" stroke-width="1"/>` + arcs.map((a) => `<path d="${arc(a)}" fill="${fill(a.data[0])}"/>`).join('') + `<text class="ct" y="0.5">${g.items.length}</text></g>`;
       if (!cl.some((o) => o !== g && Math.hypot(o.x - g.x, o.y - g.y) < 80)) labels += `<text class="cityl" x="${g.x}" y="${g.y + r + 13}">${esc(g.cities.length > 1 ? g.cities[0] + ' area' : g.cities[0])}</text>`;
     }
   });
@@ -194,7 +233,7 @@ function draw() {
     const cls = 'str' + (kind !== 'lens' ? ' sel' : ''), at = kind === 'sel' ? state.selAt : kind === 'lens' ? state.lensAt : 0;
     const d = curve(you[0], you[1], p._x, p._y); if (d) st += `<path class="${cls}${anim(at)}" d="${d}" pathLength="1"/>`;
   });
-  gStr.html(st); gMk.html(mk + labels);
+  gTether.html(tethers); gStr.html(st); gMk.html(mk + labels);
   gYou.html(you ? `<g class="you" transform="translate(${you[0]},${you[1]})"><circle r="7" fill="var(--accent)" stroke="var(--land)" stroke-width="1.5"/><circle r="2.5" fill="var(--accent-ink)"/><text y="-12">You</text></g>` : '');
   const ppl = items.filter((p) => p.t !== 'disc'), unpl = D.people.filter((p) => !placed(p)).length;
   $('stats').innerHTML = D.loaded ? `<span><b>${ppl.length}</b> on the map</span><span><b>${new Set(ppl.map((p) => p.ck)).size}</b> cities</span>${unpl ? `<button data-act="place" title="Add cities"><b>${unpl}</b> need a city</button>` : ''}<span class="opt"><svg viewBox="0 0 22 10"><path d="M1,9Q11,-3 21,9" fill="none" stroke="var(--string)" stroke-width="1.8"/></svg>Connection to you</span>` : '';
@@ -263,7 +302,14 @@ function useIdea(i) {
   const inp = $('askIn'); const t = IDEAS[i][1]; inp.value = t; inp.focus();
   const gap = t.indexOf('  '); const pos = gap >= 0 ? gap + 1 : t.length; inp.setSelectionRange(pos, pos);
 }
+function syncAskPlaceholder() {
+  const el = $('askIn');
+  if (!el) return;
+  el.placeholder = innerWidth < 400 ? ASK_PH_SHORT : ASK_PH_LONG;
+}
 function bindBar() {
+  syncAskPlaceholder();
+  addEventListener('resize', syncAskPlaceholder);
   document.querySelector('.top').addEventListener('click', (e) => {
     const m = e.target.closest('[data-mode]'); if (m) { state.mode = m.dataset.mode; drawBar(); draw(); if (state.view === 'today') renderPanel(true); return; }
     const l = e.target.closest('[data-layer]'); if (l) { state.layers.disc = !state.layers.disc; drawBar(); draw(); return; }
