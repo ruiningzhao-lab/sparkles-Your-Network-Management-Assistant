@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:local": "next dev -p 4387",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit"

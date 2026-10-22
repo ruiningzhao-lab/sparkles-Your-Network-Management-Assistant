@@ -22,7 +22,11 @@ cp .env.example .env.local      # optionally add ANTHROPIC_API_KEY
 npm run dev
 ```
 
-Open http://localhost:3000. With no Supabase keys this is **local mode**: one user, no sign-in, data saved in `.data/` in this folder. Good for trying it out.
+Open http://localhost:3000 (or run `npm run dev:local` for http://localhost:4387). With no Supabase keys this is **local mode**: one user, no sign-in, data saved in `.data/` in this folder. Good for trying it out.
+
+No data yet? On the welcome screen choose **Explore with sample people** to load 28 sample people around the world (remove them from the account menu or the Today banner). With no `ANTHROPIC_API_KEY`, Ask still works offline: it matches your words to people's notes and interests and suggests simple plans and drafts.
+
+> Keep the project outside an iCloud-synced folder (Desktop or Documents with "Optimize Mac Storage"). macOS can offload source files there, which stalls `next dev` and git.
 
 ## 2. Turn on accounts and invites (Supabase, free tier is fine)
 
