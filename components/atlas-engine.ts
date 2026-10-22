@@ -5,6 +5,7 @@ import * as d3 from 'd3';
 import { tile as d3tile } from 'd3-tile';
 import { feature, mesh } from 'topojson-client';
 import TOPO from 'world-atlas/countries-50m.json';
+import { CARTO_BASEMAPS_KEY } from '@/lib/config';
 import { CITIES, COUNTRY_NAMES, findCity, makePlace } from '@/lib/geo';
 import { buildToday } from '@/lib/agenda/build';
 import { domainOf } from '@/lib/agenda/clean';
@@ -86,9 +87,14 @@ let svg, gBase, gTiles, pGrat, pLand, pBord, gTether, gStr, gMk, gYou, zoom, lan
 const TILE_ZOOM_IN = 3.2;
 const TILE_ZOOM_FULL = 5.8;
 const tileMix = (k) => d3.scaleLinear().domain([TILE_ZOOM_IN, TILE_ZOOM_FULL]).range([0, 1]).clamp(true)(k);
+const mapTileAttribution = () => (CARTO_BASEMAPS_KEY ? '© OpenStreetMap · © CARTO' : '© OpenStreetMap contributors');
 const tileHref = (d) => {
-  const r = devicePixelRatio > 1 ? '@2x' : '';
-  return `https://a.basemaps.cartocdn.com/rastertiles/voyager/${d[2]}/${d[0]}/${d[1]}${r}.png`;
+  const [x, y, z] = d;
+  if (CARTO_BASEMAPS_KEY) {
+    const r = devicePixelRatio > 1 ? '@2x' : '';
+    return `https://basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}${r}.png?key=${encodeURIComponent(CARTO_BASEMAPS_KEY)}`;
+  }
+  return `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
 };
 const ASK_PH_LONG = 'What do you want to do? Sparkles finds the people.';
 const ASK_PH_SHORT = 'What do you want to do?';
@@ -105,9 +111,9 @@ function view() {
 function initMap() {
   svg = d3.select('#map');
   svg.selectAll('*').remove();
-  gBase = svg.append('g');
   tileLayout = d3tile();
-  gTiles = gBase.append('g').attr('class', 'maptiles');
+  gTiles = svg.append('g').attr('class', 'maptiles');
+  gBase = svg.append('g');
   land = feature(TOPO, TOPO.objects.countries);
   borders = mesh(TOPO, TOPO.objects.countries, (a, b) => a !== b);
   pGrat = gBase.append('path').attr('class', 'grat');
@@ -131,13 +137,19 @@ function layout() {
 function drawTiles(k) {
   const mix = tileMix(k);
   const attr = $('mapAttr');
-  if (attr) attr.hidden = mix < 0.15;
+  if (attr) {
+    attr.hidden = mix < 0.15;
+    if (!attr.hidden) attr.textContent = mapTileAttribution();
+  }
   const fade = 1 - mix * 0.9;
   pGrat.style('opacity', 0.22 * fade);
   pLand.style('opacity', fade);
   pBord.style('opacity', 0.55 * fade);
   if (mix < 0.02) { gTiles.style('opacity', 0).selectAll('image').remove(); return; }
-  const tiles = tileLayout.scale(proj.scale() * 2 * Math.PI).translate(proj.translate())();
+  const t = state.t;
+  const tiles = tileLayout
+    .scale(k * proj.scale() * 2 * Math.PI)
+    .translate([t.x + k * proj.translate()[0], t.y + k * proj.translate()[1]])();
   gTiles.style('opacity', mix * 0.96);
   gTiles.selectAll('image').data(tiles, (d) => d.join('/')).join(
     (enter) => enter.append('image').attr('pointer-events', 'none'),

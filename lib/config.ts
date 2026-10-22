@@ -16,6 +16,9 @@ export const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
 
 export const LOCAL_USER_NAME = process.env.LOCAL_USER_NAME || '';
 
+/** Optional — CARTO Voyager raster tiles (free key at https://carto.com/basemaps/apikey/). Without it we use OSM tiles when zoomed in. */
+export const CARTO_BASEMAPS_KEY = process.env.NEXT_PUBLIC_CARTO_BASEMAPS_KEY || '';
+
 export function supabaseEnabled() {
   return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 }
