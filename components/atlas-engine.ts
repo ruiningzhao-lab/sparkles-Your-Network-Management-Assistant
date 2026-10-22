@@ -16,7 +16,7 @@ async function call(path, method = 'GET', data?, signal?) {
   if (!res.ok) { const e = new Error(out.error || 'Request failed'); e.status = res.status; throw e; }
   return out;
 }
-const API = {
+export const FETCH_API = {
   load: () => call('/api/data'),
   saveProfile: (p) => call('/api/profile', 'PUT', p),
   savePeople: (people) => call('/api/people', 'POST', { people }),
@@ -29,6 +29,7 @@ const API = {
   next: (personId) => call('/api/ai/next', 'POST', { personId }),
   geocode: (q) => call('/api/geocode', 'POST', { q }),
 };
+let API = FETCH_API;
 
 /* ================= helpers ================= */
 const ICONS = ['☕', '▶', '★', '◐', '♫', '☎', '✉', '↗', '→', '◆', '◎', '↻', '✈', '♪', '⇄', '◉'];
@@ -299,7 +300,7 @@ function renderTabs() {
 }
 function renderPanel(keepScroll?) {
   if (!keepScroll) pb.scrollTop = 0; renderTabs();
-  if (!D.loaded) { pb.innerHTML = `<h2 class="greet">${D.error ? 'Couldn’t load your network' : 'Loading your network…'}</h2><p class="sub">${D.error ? 'Check your connection and reload the page.' : 'Your people and maps are private to you.'}</p>`; return; }
+  if (!D.loaded) { pb.innerHTML = `<h2 class="greet">${D.error ? (typeof D.error === 'string' ? 'Sign in to use Sparkles' : 'Couldn’t load your network') : 'Loading your network…'}</h2><p class="sub">${D.error ? (typeof D.error === 'string' ? esc(D.error) : 'Check your connection and reload the page.') : 'Your people and maps are private to you.'}</p>`; return; }
   if (!home()) return renderWelcome();
   if (state.view === 'person') return renderPerson();
   if (state.view === 'lens') return renderLens();
@@ -638,10 +639,10 @@ function toast(m) { const l = $('layer'); l.querySelector('.toast')?.remove(); c
 
 /* ================= start ================= */
 let started = false;
-export async function start(viewer: Viewer) {
+export async function start(viewer: Viewer, api = FETCH_API) {
   if (started) return () => {};
   started = true;
-  VIEWER = viewer;
+  VIEWER = viewer; API = api;
   $('cityList').innerHTML = CITIES.slice(0, 2500).map((c) => `<option value="${esc(c[0])}, ${esc(COUNTRY_NAMES[c[1]] || c[1])}">`).join('');
   initMap(); bindMap(); bindBar(); bindPanel();
   setCircles([]); drawBar(); renderPanel();
@@ -650,7 +651,7 @@ export async function start(viewer: Viewer) {
     const d = await API.load();
     D.profile = d.profile; D.people = d.people || []; D.maps = Object.fromEntries((d.maps || []).map((m) => [m.id, m])); D.ai = !!d.ai; D.loaded = true;
     setCircles(d.circles);
-  } catch (err) { D.error = true; D.loaded = false; if (err.status === 401 || err.status === 403) { location.href = err.status === 401 ? '/login' : '/no-access'; return; } }
+  } catch (err) { D.error = err.userMessage || true; D.loaded = false; if (api === FETCH_API && (err.status === 401 || err.status === 403)) { location.href = err.status === 401 ? '/login' : '/no-access'; return; } }
   reindex(); drawBar(); draw(); renderPanel();
   if (home()) flyLL(home().lat, home().lng, 1.6);
   return () => removeEventListener('resize', layout);

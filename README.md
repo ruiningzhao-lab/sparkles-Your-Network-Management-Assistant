@@ -8,6 +8,10 @@ Your network on a world map. Say what you want to do ("I want to get better at j
 - **People:** import a CSV (LinkedIn's Connections.csv works), add notes, interests and cities.
 - **Invite-only:** you create invite links; each person gets their own private map.
 
+## 0. No-setup version on claude.ai
+
+`node scripts/build-artifact.mjs` builds `dist/sparkles.html`: the same app as one page that runs on claude.ai, saving each person's data privately to their Claude account and using their own Claude access for AI. Publish it as a Claude artifact and share the link; no server, Supabase or API key needed. People need a Claude account to use it.
+
 ## 1. Run it on your computer (5 minutes)
 
 You need [Node.js 20 or newer](https://nodejs.org).
