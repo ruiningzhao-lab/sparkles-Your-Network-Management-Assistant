@@ -5,6 +5,8 @@ import * as d3 from 'd3';
 import { feature, mesh } from 'topojson-client';
 import TOPO from 'world-atlas/countries-50m.json';
 import { CITIES, COUNTRY_NAMES, findCity, makePlace } from '@/lib/geo';
+import { buildToday } from '@/lib/agenda/build';
+import { domainOf } from '@/lib/agenda/clean';
 import { icon, NAV } from './icons';
 
 type Viewer = { mode: 'local' | 'supabase' | 'claude'; name: string; email: string; admin: boolean };
@@ -31,6 +33,12 @@ export const FETCH_API = {
   geocode: (q) => call('/api/geocode', 'POST', { q }),
   loadSample: () => call('/api/demo', 'POST'),
   clearSample: () => call('/api/demo', 'DELETE'),
+  agenda: () => call('/api/agenda?off=' + new Date().getTimezoneOffset()),
+  agendaAct: (data) => call('/api/agenda', 'POST', data),
+  saveNote: (note) => call('/api/notes', 'POST', { note }),
+  deleteNote: (id) => call('/api/notes?id=' + encodeURIComponent(id), 'DELETE'),
+  saveFollowUp: (followUp) => call('/api/follow-ups', 'POST', { followUp }),
+  nudge: (kind, personId, about) => call('/api/ai/nudge', 'POST', { kind, personId, about }),
 };
 let API = FETCH_API;
 
@@ -53,7 +61,9 @@ const $ = (id) => document.getElementById(id);
 /* ================= state ================= */
 let VIEWER: Viewer;
 const D = { loaded: false, error: false, profile: null, circles: [], people: [], maps: {}, ai: false };
-const state = { tab: 'today', mode: 'all', layers: { disc: true }, lens: null, view: 'today', sel: null, hl: [], lensAt: 0, selAt: 0, t: d3.zoomIdentity, back: null, pf: 'all', pq: '', plimit: 60, edit: null, drafts: {}, confirm: null, importCircle: '' };
+const AG = { data: null, mods: null, at: 0, loading: false, error: false };
+const AGENDA = 'agenda:today';
+const state = { fuFor: null, noteFor: null, more: {}, tab: 'today', mode: 'all', layers: { disc: true }, lens: null, view: 'today', sel: null, hl: [], lensAt: 0, selAt: 0, t: d3.zoomIdentity, back: null, pf: 'all', pq: '', plimit: 60, edit: null, drafts: {}, confirm: null, importCircle: '' };
 let MODES = { all: { l: 'All' } };
 function setCircles(list) {
   D.circles = list || [];
@@ -64,7 +74,8 @@ function setCircles(list) {
 const circleOf = (p) => (p.m && MODES[p.m] && p.m !== 'all' ? MODES[p.m] : null);
 const col = (p) => (p.t === 'disc' ? 'var(--m-disc)' : `var(${circleOf(p)?.c || '--c-none'})`);
 let IDX = {};
-function reindex() { IDX = {}; D.people.forEach((p) => (IDX[p.id] = p)); Object.values(D.maps).forEach((m) => (m.disc || []).forEach((d) => (IDX[d.id] = d))); }
+function reindex() { IDX = {}; D.people.forEach((p) => (IDX[p.id] = p)); Object.values(D.maps).forEach((m) => (m.disc || []).forEach((d) => (IDX[d.id] = d))); recompute(); }
+function recompute() { AG.mods = AG.data ? buildToday(AG.data, D.people) : null; }
 const byId = (id) => IDX[id];
 const home = () => D.profile?.home || null;
 const secOf = (x) => (Array.isArray(x) ? x : [x.h, x.ids, x.why, x.note]);
@@ -106,6 +117,7 @@ function layout() {
 function curMap() { return state.lens && !state.lens.startsWith('place:') ? D.maps[state.lens] : null; }
 function lensSet() {
   if (!state.lens) return null;
+  if (state.lens === AGENDA) return new Set(Object.keys(AG.mods?.lens || {}));
   if (state.lens.startsWith('place:')) { const ck = state.lens.slice(6); return new Set(D.people.filter((p) => p.ck === ck).map((p) => p.id)); }
   const m = curMap(); if (!m) return null;
   return new Set([...(m.sec || []).map(secOf).flatMap((x) => x[1] || []), ...(m.plans || []).flatMap((p) => p.with || []), ...(m.disc || []).map((d) => d.id)]);
@@ -148,7 +160,7 @@ function draw() {
         const on = L && L.has(p.id), dimd = L && !on && p.id !== state.sel, sel = p.id === state.sel, hov = HL.has(p.id);
         let s = `<g class="mk${dimd ? ' dim' : ''}" data-id="${esc(p.id)}" transform="translate(${p._x},${p._y})">`;
         if (sel) s += `<circle class="halo" r="15" style="animation-delay:-${now % 2200}ms"/>`;
-        if (on || hov) s += `<circle r="14.5" fill="none" stroke="var(--string)" stroke-width="${hov ? 3 : 2}"/>`;
+        if (on || hov) s += `<circle r="14.5" fill="none" stroke="${(on && agRing(p.id)) || 'var(--string)'}" stroke-width="${hov ? 3 : 2}"/>`;
         if (p.t === 'disc') s += `<rect x="-10" y="-10" width="20" height="20" rx="6" fill="var(--surface)" stroke="var(--m-disc)" stroke-width="2" stroke-dasharray="3 2"/><text class="ini out" style="fill:var(--m-disc)">${esc(p.g || '★')}</text>`;
         else s += `<circle r="11" fill="${col(p)}" stroke="var(--surface)" stroke-width="1.5"/><text class="ini">${esc(ini(p.n))}</text>`;
         mk += s + '</g>';
@@ -243,6 +255,7 @@ function drawBar() {
 }
 function storyCard(kind, id, chip, m, prompt) { const c = MODES[m]?.c || '--accent'; return `<button class="story" data-${kind}="${esc(id)}" aria-pressed="${kind === 'map' && state.lens === id}"><small style="color:var(${c})"><i style="background:var(${c})"></i>${esc(chip)}</small><span>“${esc(prompt)}”</span></button>`; }
 function lensTitle() {
+  if (state.lens === AGENDA) return ['Today', 'On your agenda'];
   if (state.lens.startsWith('place:')) { const ck = state.lens.slice(6); const p = D.people.find((x) => x.ck === ck); return ['Place', p ? p.city : 'Place']; }
   const s = curMap(); return s ? [s.chip || 'Map', s.title] : ['Map', ''];
 }
@@ -271,11 +284,12 @@ function bindBar() {
 let runId = 0;
 function setLens(id, { fly = true } = {}) {
   state.lens = id; state.lensAt = performance.now(); state.sel = null; state.hl = []; state.tab = 'today';
-  state.view = id ? 'lens' : 'today';
+  state.view = id && id !== AGENDA ? 'lens' : 'today';
   if (!id) $('askIn').value = '';
   drawBar(); draw(); renderPanel();
   if (!fly) return;
   if (!id) { flyWorld(); return; }
+  if (id === AGENDA) { const L = lensSet(); const list = D.people.filter((p) => L.has(p.id)); if (list.length) fitItems(list); return; }
   if (id.startsWith('place:')) { const ck = id.slice(6); const p = D.people.find((x) => x.ck === ck); if (p) flyLL(p.lat, p.lng, cityZoom(p)); return; }
   const L = lensSet(); fitItems([...D.people, ...discItems()].filter((p) => L.has(p.id)));
 }
@@ -291,6 +305,7 @@ function goBack() {
   const b = state.back; state.sel = null; state.back = null; state.edit = null;
   if (b && b.tab === 'people') { state.tab = 'people'; state.view = 'today'; draw(); renderPanel(); return; }
   if (b && b.view === 'lens' && state.lens) { setLens(state.lens); return; }
+  if (state.lens === AGENDA) { state.view = 'today'; state.tab = 'today'; draw(); renderPanel(); return; }
   setLens(null);
 }
 
@@ -333,7 +348,7 @@ function renderPanel(keepScroll?) {
   renderToday();
 }
 const firstName = () => (VIEWER.name || '').split(' ')[0];
-const canSample = () => !!API.loadSample;
+const canSample = () => !!API.loadSample && VIEWER.mode === 'local';
 const isSampleP = (p) => (p.src || []).includes('Sample');
 function sampleOption(primary = false) {
   return canSample() ? `<button class="option${primary ? ' primary' : ''}" data-act="sample"><span class="oi">${icon('sample', 20)}</span><div><b>Explore with sample people</b><small>28 people around the world. Remove them any time.</small></div></button>` : '';
@@ -359,20 +374,174 @@ function addPeopleCard() {
     ${sampleOption()}
    </div></div>`;
 }
+/* ================= agenda (Today) ================= */
+const hasAgenda = () => !!API.agenda;
+const MIN = 6e4;
+const ms = (iso) => (iso ? new Date(iso).getTime() : NaN);
+const sod = (t = Date.now()) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+const hm = (iso, tz?) => { try { return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz || undefined }); } catch { return ''; } };
+const dayName = (t) => { const d = Math.round((sod(t) - sod()) / DAY); return d === 0 ? 'Today' : d === 1 ? 'Tomorrow' : d === -1 ? 'Yesterday' : new Date(t).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); };
+const wd = (t) => new Date(t).toLocaleDateString('en-US', { weekday: 'short' });
+function agoLong(iso) {
+  const m = (Date.now() - ms(iso)) / MIN; if (!Number.isFinite(m)) return '';
+  if (m < 1) return 'just now'; if (m < 60) return Math.round(m) + ' min ago'; if (m < 60 * 24) return Math.round(m / 60) + ' h ago';
+  const d = Math.floor((sod() - sod(ms(iso))) / DAY); if (d <= 1) return 'yesterday'; if (d < 14) return d + ' days ago'; if (d < 60) return Math.round(d / 7) + ' wk ago'; if (d < 365) return Math.round(d / 30) + ' mo ago'; return Math.round(d / 365) + ' yr ago';
+}
+function untilLong(iso) { const m = Math.round((ms(iso) - Date.now()) / MIN); return m < 1 ? 'now' : m < 60 ? `in ${m} min` : m < 60 * 6 ? `in ${Math.floor(m / 60)} h ${m % 60 ? (m % 60) + ' min' : ''}`.trim() : 'at ' + hm(iso); }
+const KIND_VERB = { talked: 'talked', meeting: 'met', email: 'emailed', note: 'wrote a note' };
+const AG_RING = { meet: 'var(--ag-meet)', reply: 'var(--ag-reply)', due: 'var(--ag-due)' };
+const agRing = (id) => (state.lens === AGENDA ? AG_RING[AG.mods?.lens?.[id]] : null);
+const firstOf = (id) => { const p = byId(id); return p ? fn(p) : ''; };
+const namesOf = (ids, guests = []) => [...ids.map(firstOf).filter(Boolean), ...guests.map((g) => g.name.split(' ')[0])];
+function pchips(ids, guests = []) {
+  return ids.map(byId).filter(Boolean).map((p) => `<button class="pchip" data-person="${esc(p.id)}">${avatar(p, 'xs')}${esc(fn(p))}</button>`).join('') + guests.map((g) => `<span class="pchip guest"><span class="av xs">${esc(ini(g.name))}</span>${esc(g.name.split(' ')[0])}</span>`).join('');
+}
+function theirTime(e) {
+  const p = e.people.length === 1 ? byId(e.people[0]) : null, mine = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (!p || !p.tz || p.tz === mine) return '';
+  const a = hm(e.start, p.tz); return a && a !== hm(e.start) ? `${a} for ${fn(p)}` : '';
+}
+function dueLabel(f) {
+  if (f.status === 'snoozed') return 'Back from snooze';
+  if (!f.due) return 'No date';
+  const d = Math.round((sod(ms(f.due)) - sod()) / DAY);
+  return d < 0 ? `Overdue · ${-d === 1 ? '1 day' : -d + ' days'}` : d === 0 ? 'Due today' : d === 1 ? 'Due tomorrow' : 'Due ' + dayName(ms(f.due));
+}
+function updLabel() { const m = Math.round((Date.now() - AG.at) / MIN); return AG.loading ? 'Updating…' : m < 1 ? 'Updated just now' : `Updated ${m} min ago`; }
+async function loadAgenda() {
+  if (!hasAgenda() || AG.loading || !D.loaded) return;
+  AG.loading = true; const u = $('agUpd'); if (u) u.textContent = updLabel();
+  try { AG.data = await API.agenda(); AG.at = Date.now(); AG.error = false; }
+  catch (err) { AG.error = true; console.warn(err); }
+  AG.loading = false; recompute();
+  if (state.lens === AGENDA) draw();
+  refreshToday();
+}
+// Re-render Today without losing what someone is typing.
+function refreshToday() {
+  if (!(state.view === 'today' && state.tab === 'today' && D.loaded && home())) return;
+  const f = document.activeElement; if (f && pb.contains(f) && f.matches('textarea,input')) { const u = $('agUpd'); if (u) u.textContent = updLabel(); return; }
+  renderPanel(true);
+}
+function agendaBar(m) {
+  const d = AG.data, on = state.lens === AGENDA, n = Object.keys(m?.lens || {}).length;
+  return `<div class="agbar">${d?.demo ? `<span class="demo-badge" title="Generated from your people. Nothing here is real or stored.">${icon('sample', 14)}Demo data</span><button class="lnk" data-act="exitdemo">Exit demo</button>` : ''}
+   <span class="sp"></span><span class="upd" id="agUpd">${esc(updLabel())}</span><button class="iconbtn sm" data-act="agrefresh" aria-label="Refresh agenda" title="Refresh">${icon('refresh', 16)}</button></div>
+   ${n ? `<button class="maptoggle" data-act="aglens" aria-pressed="${on}">${icon('globe', 16)}<span>${on ? 'Showing today on the map' : 'Show today on the map'}</span><small>${n} ${n === 1 ? 'person' : 'people'}</small></button>${on ? `<div class="legend"><span><i style="border-color:var(--ag-meet)"></i>Meeting today</span><span><i style="border-color:var(--ag-reply)"></i>Awaiting your reply</span><span><i style="border-color:var(--ag-due)"></i>Follow-up due</span></div>` : ''}` : ''}`;
+}
+function connectCard() {
+  return `<div class="card connect"><div class="cardhead">${icon('today', 20)}<div><h3>Connect calendar or email</h3><p>See today’s meetings, who’s waiting on a reply and what you promised, all next to your map.</p>
+   <div class="btns" style="align-items:center"><button class="btn sm go" data-act="trydemo">Try demo data</button><span class="optin" style="margin:0">Google and Outlook are next.</span></div></div></div></div>`;
+}
+function evRow(e, opts: { brief?: boolean; compact?: boolean } = {}) {
+  const t = Date.now(), past = ms(e.end) <= t, live = ms(e.start) <= t && !past, tt = theirTime(e);
+  const meta = [pchips(e.people, e.guests), tt ? `<span class="tz">${icon('clock', 13)}${esc(tt)}</span>` : '', e.location && !opts.compact ? `<span class="loc">${icon('pin', 13)}${esc(e.location)}</span>` : ''].filter(Boolean).join('');
+  const pill = live ? `<span class="pill good">Now</span>` : past ? '' : opts.brief ? `<span class="pill accent">${esc(untilLong(e.start))}</span>` : '';
+  return `<div class="ev${past ? ' past' : ''}${opts.brief ? ' next' : ''}" data-hl="${esc(e.people.join(','))}"${e.people.length ? ` data-person="${esc(e.people[0])}" tabindex="0"` : ''}>
+   <div class="ev-t"><b>${esc(hm(e.start).replace(/ (AM|PM)$/, ''))}</b><small>${esc(hm(e.start).slice(-2))}</small></div>
+   <div class="ev-b"><div class="ev-h"><b>${esc(e.title)}</b>${pill}</div><div class="ev-m">${meta}</div>${e.description && !opts.brief && !opts.compact ? `<div class="ev-d">${esc(e.description.split('\n')[0])}</div>` : ''}</div></div>`;
+}
+function briefCard(b) {
+  const e = b.event, p = b.personId ? byId(b.personId) : null, open = !!state.more[e.id], last = p ? AG.mods.last[p.id] : null;
+  const lines = [];
+  if (last) lines.push(`<div><span>Last contact</span><b>${esc(KIND_VERB[last.kind][0].toUpperCase() + KIND_VERB[last.kind].slice(1))} ${esc(agoLong(last.at))}</b></div>`);
+  if (b.lastThread) lines.push(`<div><span>Last email</span><b>${esc(b.lastThread.subject)}</b><small>${esc(agoLong(b.lastThread.lastAt))}</small></div>`);
+  if (b.lastNote) lines.push(`<div><span>Last note</span><b class="q">“${esc(b.lastNote.body.slice(0, 140))}${b.lastNote.body.length > 140 ? '…' : ''}”</b><small>${esc(agoLong(b.lastNote.at))}</small></div>`);
+  if (p?.next) lines.push(`<div><span>Next step</span><b>${esc(p.next)}</b></div>`);
+  if (b.open.length) lines.push(`<div><span>Open</span><b>${b.open.map((f) => esc(f.title)).join('<br>')}</b></div>`);
+  return `<div class="brief" data-hl="${esc(e.people.join(','))}">
+   <div class="brief-h"><span class="eb" style="margin:0">${icon('spark', 13)}Meeting brief</span><span class="sp"></span>${e.joinUrl ? `<a class="btn sm go" href="${esc(e.joinUrl)}" target="_blank" rel="noopener">Join</a>` : ''}</div>
+   ${e.description ? `<div class="desc${open ? ' open' : ''}">${esc(open ? e.description : e.description.replace(/\n{2,}/g, '\n'))}</div>${e.description.split('\n').length > 4 || e.description.length > 220 ? `<button class="lnk" data-more="${esc(e.id)}">${open ? 'Show less' : 'Show more'}</button>` : ''}` : ''}
+   ${(e.links || []).length ? `<div class="lchips">${e.links.map((u) => `<a class="tag" href="${esc(u)}" target="_blank" rel="noopener">${icon('globe', 12)}${esc(domainOf(u))}</a>`).join('')}</div>` : ''}
+   ${lines.length ? `<div class="bfacts">${lines.join('')}</div>` : ''}
+   ${p ? `<div class="btns"><button class="btn sm" data-nextstep="${esc(p.id)}">${icon('spark', 15)}Suggest a talking point</button><button class="btn sm ghost" data-person="${esc(p.id)}">Open ${esc(fn(p))}</button></div>` : ''}
+  </div>`;
+}
+function captureCard(e) {
+  const who = namesOf(e.people).join(' and ');
+  return `<div class="card capture"><div class="cardhead">${icon('chat', 20)}<div style="flex:1;min-width:0"><h3>How was ${esc(e.title.charAt(0).toLowerCase() + e.title.slice(1))}?</h3><p>Ended ${esc(agoLong(e.end))}. A quick note now saves digging later.</p>
+   <form id="capForm" data-ev="${esc(e.id)}">
+    <textarea id="capNote" rows="3" placeholder="What did you talk about with ${esc(who)}? Anything you promised?" aria-label="Meeting note"></textarea>
+    <label class="chk"><input type="checkbox" id="capFuOn">Add a follow-up</label>
+    <div id="capFu" class="fucomp" hidden><input id="capFuT" placeholder="Send ${esc(who.split(' and ')[0])} the article" maxlength="300" aria-label="Follow-up">${dueChips('cap', 'tomorrow')}</div>
+    <div class="btns"><button class="btn sm go" type="submit">Save note</button><button class="btn sm ghost" type="button" data-capskip="${esc(e.id)}">Not now</button></div>
+   </form></div></div></div>`;
+}
+function dueChips(name, sel) {
+  return `<div class="duechips" role="radiogroup" aria-label="Due">${[['today', 'Today'], ['tomorrow', 'Tomorrow'], ['week', 'Next week'], ['none', 'No date']].map(([v, l]) => `<label><input type="radio" name="${name}-due" value="${v}"${v === sel ? ' checked' : ''}>${l}</label>`).join('')}</div>`;
+}
+function dueISO(v) {
+  const d = new Date(); d.setSeconds(0, 0);
+  if (v === 'today') { d.setHours(17, 0); return d.toISOString(); }
+  if (v === 'tomorrow') { d.setDate(d.getDate() + 1); d.setHours(9, 0); return d.toISOString(); }
+  if (v === 'week') { d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7)); d.setHours(9, 0); return d.toISOString(); }
+  return undefined;
+}
+function draftBox(key) {
+  const d = state.drafts[key]; if (!d) return '';
+  const p = d.pid ? byId(d.pid) : null;
+  return `<div class="draft"><textarea id="draft-${esc(key)}" aria-label="Draft message">${esc(d.text)}</textarea><div class="btns" style="margin-top:0"><button class="btn sm" data-copy="${esc(key)}">Copy</button>${p?.email ? `<button class="btn sm" data-mailto="${esc(key)}">${icon('mail', 15)}Open in email</button>` : ''}<button class="btn sm ghost" data-undraft="${esc(key)}">Close</button></div><p class="optin" style="margin:6px 0 0">Sparkles never sends email. Copy it, or open it in your email app.</p></div>`;
+}
+function fuRow(f, withName = true) {
+  const p = byId(f.personId), od = f.due && ms(f.due) < sod();
+  return `<div class="row fu" data-person="${esc(f.personId)}" tabindex="0"><button class="tick" data-fudone="${esc(f.id)}" aria-label="Mark “${esc(f.title)}” done">${icon('check', 14)}</button>
+   <div><b>${esc(f.title)}</b><small><span class="${od ? 'od' : ''}">${esc(dueLabel(f))}</span>${withName && p ? ' · ' + esc(p.n) : ''}</small>
+   <div class="ra"><button class="lnk" data-draft="followup|${esc(f.personId)}|${esc(f.id)}">Draft</button><button class="lnk" data-fusnooze="${esc(f.id)}">Snooze to tomorrow</button></div>${draftBox('f-' + f.id)}</div></div>`;
+}
+function threadRow(t, kind) {
+  const id = t.people[0], who = namesOf(t.people, t.guests).join(', '), d = Math.floor((Date.now() - ms(t.lastAt)) / DAY);
+  const head = kind === 'reply' ? `<b>${esc(who)}</b> wrote ${esc(agoLong(t.lastAt))}` : `No reply from <b>${esc(who)}</b> in ${d} days`;
+  return `<div class="row th"${id ? ` data-person="${esc(id)}" tabindex="0"` : ''} data-hl="${esc(t.people.join(','))}">${id ? avatar(byId(id)) : `<span class="av">${esc(ini(who))}</span>`}
+   <div><span class="th-h">${head}</span><small class="subj">${icon('mail', 13)}${esc(t.subject)}</small>
+   <div class="ra">${id ? `<button class="lnk" data-draft="${kind === 'reply' ? 'reply' : 'nudge'}|${esc(id)}|${esc(t.id)}">${kind === 'reply' ? 'Draft a reply' : 'Nudge'}</button>` : ''}${kind === 'reply' ? `<button class="lnk" data-thact="done|${esc(t.id)}">Done</button><button class="lnk" data-thact="snoozed|${esc(t.id)}">Snooze</button>` : `<button class="lnk" data-thact="dismissed|${esc(t.id)}">Dismiss</button>`}</div>${draftBox('t-' + t.id)}</div></div>`;
+}
+function agendaModules(m) {
+  const d = AG.data, out = [];
+  if (!d.demo && !d.connected) out.push(connectCard());
+  if (m.after) out.push(captureCard(m.after));
+  if (m.meetings.length) {
+    const left = m.meetings.filter((e) => ms(e.end) > Date.now()).length;
+    out.push(`<div class="h4" id="ag-meet">Today’s meetings<span class="cnt">${left ? left + ' to go' : 'All done'}</span></div><div class="tl">${m.meetings.map((e) => evRow(e, { brief: m.next && e.id === m.next.id }) + (m.brief && e.id === m.brief.event.id ? briefCard(m.brief) : '')).join('')}</div>`);
+  }
+  if (m.due.length) out.push(`<div class="h4" id="ag-due">Follow-ups due<span class="cnt">${m.due.length}</span></div>${m.due.map((f) => fuRow(f)).join('')}`);
+  if (m.needsReply.length) out.push(`<div class="h4" id="ag-reply">Needs your reply<span class="cnt">${m.needsReply.length}</span></div>${m.needsReply.map((t) => threadRow(t, 'reply')).join('')}`);
+  if (m.waiting.length) out.push(`<div class="h4">Waiting on them<span class="cnt">${m.waiting.length}</span></div>${m.waiting.map((t) => threadRow(t, 'wait')).join('')}`);
+  if (m.trips.length || m.coming.length) {
+    out.push(`<div class="h4">Coming up<span class="cnt">Next 7 days</span></div>` + m.trips.map((t) => {
+      const a = ms(t.event.start), b = ms(t.event.end) - 1, span = sod(a) === sod(b) ? dayName(a) : `${wd(a)}–${wd(b)}`;
+      return `<div class="card trip" data-hl="${esc(t.people.join(','))}"><div class="cardhead"><span class="oi">${icon('plans', 20)}</span><div style="flex:1"><h3>${esc(t.city)} · ${esc(span)}</h3><p>${t.people.length} ${t.people.length === 1 ? 'person' : 'people'} you know ${t.people.length === 1 ? 'is' : 'are'} there: ${esc(namesOf(t.people.slice(0, 4)).join(', '))}${t.people.length > 4 ? '…' : ''}</p>
+       <div class="btns"><button class="btn sm go" data-place="${esc(t.ck)}">See who’s there</button><button class="btn sm" data-tripask="${esc(`I’m in ${t.city} ${span}. Who should I see?`)}">Plan the trip</button></div></div></div></div>`;
+    }).join('') + m.coming.map((g) => `<div class="dayh">${esc(dayName(g.day))}</div>${g.events.map((e) => evRow(e, { compact: true })).join('')}`).join(''));
+  }
+  const rc = m.reconnect.filter((r) => state.mode === 'all' || byId(r.id)?.m === state.mode).slice(0, 5);
+  if (rc.length) out.push(`<div class="h4">Reconnect<span class="cnt">Past your usual rhythm</span></div>${rc.map((r) => { const p = byId(r.id); return `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc(r.days >= 60 ? Math.round(r.days / 30) + ' months' : r.days + ' days')} since you last ${esc(KIND_VERB[r.kind])}</small></div><span class="pill${r.days > 120 ? ' warn' : ''}">${esc(ago(new Date(Date.now() - r.days * DAY).toISOString()))}</span></div>`; }).join('')}`);
+  if (m.suggested.length) out.push(`<div class="h4">New people<span class="cnt">Not on your map yet</span></div>${m.suggested.map((g) => `<div class="row sg"><span class="av" style="background:var(--sunk2);color:var(--ink2)">${esc(ini(g.name))}</span><div><b>${esc(g.name)}</b><small>${esc([g.meetings ? `You met ${g.meetings === 1 ? 'once' : g.meetings === 2 ? 'twice' : g.meetings + ' times'} this month` : '', g.threads ? `${g.threads} email ${g.threads === 1 ? 'thread' : 'threads'}` : ''].filter(Boolean).join(' · '))}</small>
+     <div class="ra"><button class="lnk" data-sgadd="${esc(g.email)}">Add to map</button><button class="lnk" data-sgno="${esc(g.email)}">Ignore</button></div></div></div>`).join('')}`);
+  if (m.notes.length) out.push(`<div class="h4">Recent notes</div>${m.notes.map((n) => `<div class="nrow" data-person="${esc(n.people[0])}" data-hl="${esc(n.people.join(','))}" tabindex="0"><p>${esc(n.body)}</p><small>${esc(namesOf(n.people).join(', '))} · ${esc(agoLong(n.at))}</small></div>`).join('')}`);
+  return out.join('');
+}
 function renderToday() {
   const ppl = D.people.filter((p) => state.mode === 'all' || p.m === state.mode), unpl = D.people.filter((p) => !placed(p)).length;
-  const due = ppl.filter((p) => since(p) >= 45 && since(p) < Infinity).sort((a, b) => since(b) - since(a)).slice(0, 5);
   const recent = [...ppl].sort((a, b) => (b.added || 0) - (a.added || 0)).slice(0, 4);
   const saved = Object.values(D.maps).sort((a, b) => (b.at || 0) - (a.at || 0));
   const planned = allPlans().filter((p) => p.planned).sort((a, b) => b.planned - a.planned);
   const samples = D.people.filter(isSampleP).length;
   const cities = new Set(D.people.filter(placed).map((p) => p.ck)).size;
+  const ag = hasAgenda() && D.people.length > 0, m = ag && AG.data ? AG.mods : null;
+  const unplCard = `<div class="card warn"><div class="cardhead">${icon('pin', 20)}<div><h3>${unpl} ${unpl === 1 ? 'person needs' : 'people need'} a city</h3><p>Add a city to put them on the map.</p><button class="btn sm go" data-act="place">Add cities</button></div></div></div>`;
+  const due = m ? [] : ppl.filter((p) => since(p) >= 45 && since(p) < Infinity).sort((a, b) => since(b) - since(a)).slice(0, 5);
+  const tiles = m && (AG.data.demo || AG.data.connected)
+    ? `<div class="tiles"><button class="tile" data-jump="ag-meet"><b>${m.meetings.length}</b><small>Meetings today</small></button><button class="tile" data-jump="ag-reply"><b>${m.needsReply.length}</b><small>Need a reply</small></button><button class="tile${m.due.some((f) => f.due && ms(f.due) < sod()) ? ' warn' : ''}" data-jump="ag-due"><b>${m.due.length}</b><small>Follow-ups due</small></button></div>`
+    : `<div class="tiles"><button class="tile" data-tab="people"><b>${D.people.length}</b><small>People</small></button><button class="tile" data-act="world"><b>${cities}</b><small>Cities</small></button><button class="tile" data-tab="plans"><b>${planned.length}</b><small>Plans</small></button></div>`;
   pb.innerHTML = `
    <h2 class="greet">${greetWord()}${firstName() ? ', ' + esc(firstName()) : ''}</h2>
    <p class="sub">${esc(today())} · <button class="homechip" data-act="home" title="Change home city">${icon('pin', 14)}${esc(home().city)}</button></p>
-   ${D.people.length === 0 ? addPeopleCard() : `<div class="tiles"><button class="tile" data-tab="people"><b>${D.people.length}</b><small>People</small></button><button class="tile" data-act="world"><b>${cities}</b><small>Cities</small></button><button class="tile" data-tab="plans"><b>${planned.length}</b><small>Plans</small></button></div>`}
+   ${ag && AG.data ? agendaBar(m) : ''}
+   ${D.people.length === 0 ? addPeopleCard() : tiles}
    ${samples ? `<div class="banner">${icon('sample', 18)}<span>You’re exploring ${samples} sample people.</span><button class="btn sm ghost" data-act="clearsample">Remove</button></div>` : ''}
-   ${unpl ? `<div class="card warn"><div class="cardhead">${icon('pin', 20)}<div><h3>${unpl} ${unpl === 1 ? 'person needs' : 'people need'} a city</h3><p>Add a city to put them on the map.</p><button class="btn sm go" data-act="place">Add cities</button></div></div></div>` : ''}
+   ${unpl && !m ? unplCard : ''}
+   ${ag && !AG.data ? (AG.error ? `<div class="banner err">${icon('alert', 18)}<span>Couldn’t load your agenda. Your people and maps are fine.</span><button class="btn sm ghost" data-act="agrefresh">Try again</button></div>` : `<div aria-busy="true" aria-label="Loading your agenda"><div class="sk c"></div>${'<div class="skrow"><span class="sk"></span><div><div class="sk l"></div><div class="sk l"></div></div></div>'.repeat(3)}</div>`) : ''}
+   ${m ? agendaModules(m) + (unpl ? unplCard : '') : ''}
    ${planned.length ? `<div class="h4">Your plans<span class="cnt">${planned.length}</span></div>${planned.slice(0, 5).map(planRow).join('')}` : ''}
    ${due.length ? `<div class="h4">Reach out<span class="cnt">Longest since you talked</span></div>${due.map((p) => `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc(p.doing || [p.role, p.company].filter(Boolean).join(' · ') || p.city || '')}</small></div><span class="pill${since(p) > 120 ? ' warn' : ''}">${esc(ago(p.last))}</span></div>`).join('')}` : ''}
    <div class="h4">Ask Sparkles</div>
@@ -458,7 +627,7 @@ function renderPeople() {
   $('impCircle').addEventListener('change', (e) => (state.importCircle = e.target.value));
 }
 function renderEdit() {
-  const p = state.edit.id ? byId(state.edit.id) : null, v = p || { m: state.mode !== 'all' ? state.mode : '' };
+  const p = state.edit.id ? byId(state.edit.id) : null, v = p || { m: state.mode !== 'all' ? state.mode : '', ...(state.edit.prefill || {}) };
   const cityVal = v.city ? v.city + (v.country ? ', ' + v.country : '') : '';
   pb.innerHTML = `<button class="back" data-back-edit>${icon('back', 16)}${p ? esc(fn(p)) : 'Cancel'}</button>
    <h2 class="greet">${p ? 'Edit ' + esc(fn(p)) : 'Add a person'}</h2>
@@ -478,7 +647,7 @@ function renderEdit() {
     </div>
     <div class="fsec"><h5>Keeping in touch</h5>
      <div class="two"><label>Last talked<input id="f-last" type="date" value="${esc((v.last || '').slice(0, 10))}" max="${new Date().toISOString().slice(0, 10)}"></label><label>Email<input id="f-email" type="email" value="${esc(v.email || '')}" autocomplete="off"></label></div>
-     <label>Profile link<input id="f-url" value="${esc(v.url || '')}" placeholder="https://" autocomplete="off"></label>
+     <div class="two"><label>Profile link<input id="f-url" value="${esc(v.url || '')}" placeholder="https://" autocomplete="off"></label><label>Remind me after<select id="f-every">${[['', `${AG.data?.defaultEvery || 45} days (default)`], ['14', '2 weeks'], ['30', '1 month'], ['60', '2 months'], ['90', '3 months'], ['180', '6 months'], ['365', '1 year'], ['0', 'Never']].map(([val, l]) => `<option value="${val}"${String(v.every ?? '') === val ? ' selected' : ''}>${l}</option>`).join('')}</select></label></div>
     </div>
     ${p && state.confirm === 'del:' + p.id ? `<div class="confirm">Delete ${esc(p.n)}? This can’t be undone.<div class="btns"><button class="btn sm danger solid" type="button" data-delp-yes="${esc(p.id)}">Delete</button><button class="btn sm" type="button" data-cancel>Keep</button></div></div>` : ''}
     <div class="formbar">${p ? `<button class="btn ghost danger-text" type="button" data-delp="${esc(p.id)}">Delete</button>` : ''}<span class="sp"></span><button class="btn" type="button" data-back-edit>Cancel</button><button class="btn go" type="submit" id="saveBtn">${p ? 'Save changes' : 'Add to map'}</button></div>
@@ -493,6 +662,22 @@ function renderEdit() {
   });
   $('f-n').addEventListener('input', (e) => { if (e.target.value.trim()) { e.target.removeAttribute('aria-invalid'); $('e-n').hidden = true; } });
 }
+function personAgenda(p) {
+  if (!hasAgenda() || !AG.data) return '';
+  const t = Date.now();
+  const nextEv = AG.data.events.filter((e) => !e.allDay && e.people.includes(p.id) && ms(e.end) > t).sort((a, b) => ms(a.start) - ms(b.start))[0];
+  const fus = AG.data.followUps.filter((f) => f.personId === p.id && f.status !== 'done').sort((a, b) => (ms(a.due) || Infinity) - (ms(b.due) || Infinity));
+  const notes = AG.data.notes.filter((n) => n.people.includes(p.id));
+  const th = AG.data.threads.filter((x) => x.people.includes(p.id)).sort((a, b) => ms(b.lastAt) - ms(a.lastAt))[0];
+  return `${nextEv ? `<div class="h4">Next meeting</div>${evRow(nextEv, { compact: true }).replace(/ data-person="[^"]*" tabindex="0"/, '')}` : ''}
+   ${th ? `<div class="h4">Last email</div><div class="row th"><span class="av" style="background:var(--sunk2);color:var(--ink2)">${icon('mail', 16)}</span><div><b>${esc(th.subject)}</b><small>${esc(th.awaiting === 'me' ? 'They wrote ' : 'You wrote ') + esc(agoLong(th.lastAt))}</small></div></div>` : ''}
+   <div class="h4">Follow-ups${fus.length ? `<span class="cnt">${fus.length}</span>` : ''}${state.fuFor === p.id ? '' : `<button class="lnk" data-fuadd="${esc(p.id)}">Add</button>`}</div>
+   ${state.fuFor === p.id ? `<form class="fucomp" id="fuForm" data-pid="${esc(p.id)}"><input id="fuT" placeholder="Send ${esc(fn(p))} the article" maxlength="300" aria-label="Follow-up" required>${dueChips('fu', 'tomorrow')}<div class="btns" style="margin-top:0"><button class="btn sm go" type="submit">Add follow-up</button><button class="btn sm" type="button" data-fucancel>Cancel</button></div></form>` : ''}
+   ${fus.map((f) => fuRow(f, false)).join('') || (state.fuFor === p.id ? '' : `<p class="optin">Nothing open. Add what you promised ${esc(fn(p))} so it shows up on Today.</p>`)}
+   <div class="h4">Notes${notes.length ? `<span class="cnt">${notes.length}</span>` : ''}</div>
+   <form class="notecomp" id="noteForm" data-pid="${esc(p.id)}"><textarea id="noteT" rows="2" placeholder="What did you talk about? What do they care about right now?" aria-label="New note about ${esc(p.n)}"></textarea><div class="btns" style="margin-top:0"><button class="btn sm go" type="submit">Save note</button><span class="optin" style="margin:0">Dated, private to you.</span></div></form>
+   ${notes.slice(0, 20).map((n) => `<div class="nrow static"><p>${esc(n.body)}</p><small>${esc(dayName(ms(n.at)))}${n.people.length > 1 ? ' · with ' + esc(namesOf(n.people.filter((x) => x !== p.id)).join(', ')) : ''}${n.demo ? ' · demo' : `<button class="lnk" data-delnote="${esc(n.id)}">Delete</button>`}</small></div>`).join('')}`;
+}
 function renderPerson() {
   const p = byId(state.sel); if (!p) { goBack(); return; }
   const back = state.back && state.back.view === 'lens' && state.lens ? lensTitle()[1] : state.back && state.back.tab === 'people' ? 'People' : state.back && state.back.tab === 'plans' ? 'Plans' : 'Today';
@@ -503,17 +688,19 @@ function renderPerson() {
      <p class="optin" style="margin-top:12px">Suggested by AI from general knowledge. Check dates, hours and details before you go.</p>`;
     return;
   }
-  const c = circleOf(p), d = since(p);
+  const c = circleOf(p), lt = AG.mods?.last?.[p.id], d = lt ? (Date.now() - ms(lt.at)) / DAY : since(p);
+  const lastTxt = lt ? (d < 1 ? 'Today' : ago(lt.at) + ' ago') : 'Not logged';
   pb.innerHTML = `${backBtn}
    <div class="phead">${avatar(p, 'lg')}<div style="flex:1;min-width:0"><h3>${esc(p.n)}</h3><p>${esc([p.role, p.company].filter(Boolean).join(' · ') || 'No role yet')}</p>
     <div class="chips">${c ? `<span class="tag"><i style="background:var(${c.c})"></i>${esc(c.l)}</span>` : ''}${p.city ? `<span class="tag">${icon('pin', 13)}${esc(p.city)}</span>` : `<button class="tag" data-editp="${esc(p.id)}">${icon('pin', 13)}Add a city</button>`}${isSampleP(p) ? `<span class="tag">Sample</span>` : ''}</div></div>
     <button class="iconbtn" data-editp="${esc(p.id)}" title="Edit ${esc(fn(p))}" aria-label="Edit ${esc(p.n)}" style="align-self:flex-start">${icon('edit', 18)}</button></div>
    <div class="actions"><button class="btn go sm" data-nextstep="${esc(p.id)}">${icon('spark', 16)}${p.next ? 'Another idea' : 'Suggest a next step'}</button><button class="btn sm" data-talked="${esc(p.id)}">${icon('check', 16)}We talked today</button></div>
-   <div class="facts"><div>Where<b>${esc(p.city || 'Not set')}</b></div><div>Their time<b>${esc(localTime(p.tz) || '–')}</b></div><div class="${d > 120 && d < Infinity ? 'warn' : ''}">Last talked<b>${esc(p.last ? (d < 1 ? 'Today' : ago(p.last) + ' ago') : 'Not logged')}</b></div></div>
+   <div class="facts"><div>Where<b>${esc(p.city || 'Not set')}</b></div><div>Their time<b>${esc(localTime(p.tz) || '–')}</b></div><div class="${d > 120 && d < Infinity ? 'warn' : ''}"${lt ? ` title="Last ${esc(lt.kind === 'note' ? 'note' : lt.kind === 'talked' ? 'talked' : lt.kind)}"` : ''}>Last contact<b>${esc(lastTxt)}</b></div></div>
    ${p.next ? `<div class="ai" style="margin-top:16px"><b>${icon('spark', 14)}Next step</b><span id="nextText">${esc(p.next)}</span></div>` : `<div id="nextText" class="sr"></div>`}
    ${p.doing ? `<div class="now"><span>Right now</span><p>${esc(p.doing)}</p></div>` : ''}
    ${p.tags && p.tags.length ? `<div class="h4">Interests</div><div class="tags">${p.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
-   <div class="h4">Your notes${p.note ? '' : `<button class="lnk" data-editp="${esc(p.id)}">Add a note</button>`}</div>${p.note ? `<div class="note">${esc(p.note)}</div>` : `<p class="optin">What you talked about, what you promised, what they care about.</p>`}
+   ${personAgenda(p)}
+   <div class="h4">About ${esc(fn(p))}${p.note ? `<button class="lnk" data-editp="${esc(p.id)}">Edit</button>` : `<button class="lnk" data-editp="${esc(p.id)}">Add</button>`}</div>${p.note ? `<div class="note">${esc(p.note)}</div>` : `<p class="optin">How you met, what they care about. Dated notes go above.</p>`}
    ${p.url || p.email || (p.src || []).length ? `<div class="h4">Details</div><div class="tags">${p.email ? `<a class="tag" href="mailto:${esc(p.email)}">${icon('mail', 13)}${esc(p.email)}</a>` : ''}${p.url ? `<a class="tag" href="${esc(p.url)}" target="_blank" rel="noopener">Profile ↗</a>` : ''}${(p.src || []).filter((s) => s !== 'Sample').map((s) => `<span class="tag">${esc(s)}</span>`).join('')}</div>` : ''}`;
 }
 
@@ -523,7 +710,7 @@ function toastErr(e) { console.warn(e); toast(e?.status === 401 ? 'Your session 
 function goTab(tab) {
   if (!D.loaded || !home()) return;
   runId++; state.tab = tab; state.edit = null; state.confirm = null; state.sel = null; state.hl = [];
-  if (state.view !== 'today') { state.view = 'today'; if (state.lens) { state.lens = null; drawBar(); } }
+  if (state.view !== 'today') { state.view = 'today'; if (state.lens && state.lens !== AGENDA) { state.lens = null; drawBar(); } }
   if (mobile()) $('panel').classList.add('big');
   draw(); renderPanel();
 }
@@ -533,7 +720,7 @@ function bindPanel() {
     const b = e.target.closest('[data-tab]');
     if (b) { goTab(b.dataset.tab); return; }
     const a = e.target.closest('[data-act]');
-    if (a && !pb.contains(a)) act(a.dataset.act);
+    if (a && a.isConnected && !pb.contains(a)) act(a.dataset.act);
   });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || e.target.closest?.('#askForm')) return;
@@ -548,6 +735,7 @@ function bindPanel() {
     const dp = t.closest('[data-draftp]'); if (dp) { draftPlan(dp.closest('.plan')); return; }
     const cp = t.closest('[data-copy]'); if (cp) { const ta = $('draft-' + cp.dataset.copy); try { await navigator.clipboard.writeText(ta.value); toast('Copied'); } catch { ta.select(); toast('Selected. Press Ctrl+C or ⌘C to copy'); } return; }
     const om = t.closest('[data-openmap]'); if (om) { openMap(om.dataset.openmap); return; }
+    if (agendaClick(t)) return;
     const iq = t.closest('[data-ideaq]'); if (iq) { useIdea(+iq.dataset.ideaq); return; }
     if (t.closest('[data-back]')) { goBack(); return; }
     if (t.closest('[data-back-edit]')) { const id = state.edit && state.edit.id, from = state.edit?.from; state.edit = null; state.confirm = null; if (id) { state.view = 'person'; state.sel = id; } else if (from) state.tab = from; draw(); renderPanel(); return; }
@@ -588,8 +776,12 @@ function bindPanel() {
       return;
     }
     if (e.target.id === 'personForm') savePersonForm();
+    if (e.target.id === 'capForm') saveCapture(e.target);
+    if (e.target.id === 'noteForm') saveNoteForm(e.target);
+    if (e.target.id === 'fuForm') saveFuForm(e.target);
   });
-  pb.addEventListener('mouseover', (e) => { const r = e.target.closest('[data-person],[data-hl]'); const ids = r ? (r.dataset.person ? [r.dataset.person] : (r.dataset.hl || '').split(',').filter(Boolean)) : []; if (ids.join() !== state.hl.join()) { state.hl = ids; draw(); } });
+  pb.addEventListener('change', (e) => { if (e.target.id === 'capFuOn') { $('capFu').hidden = !e.target.checked; if (e.target.checked) $('capFuT').focus(); } });
+  pb.addEventListener('mouseover', (e) => { const r = e.target.closest('[data-person],[data-hl]'); const ids = r ? (r.dataset.hl != null ? r.dataset.hl.split(',').filter(Boolean) : [r.dataset.person]) : []; if (ids.join() !== state.hl.join()) { state.hl = ids; draw(); } });
   pb.addEventListener('mouseleave', () => { if (state.hl.length) { state.hl = []; draw(); } });
   $('handle').onclick = () => $('panel').classList.toggle('big');
   $('csvIn').addEventListener('change', importCsv);
@@ -620,9 +812,93 @@ async function act(a) {
     return;
   }
   if (a === 'clearsample') { try { const r = await API.clearSample(); D.people = D.people.filter((p) => !isSampleP(p)); reindex(); draw(); drawBar(); renderPanel(true); toast(`Removed ${r.removed} sample people`); } catch (err) { toastErr(err); } return; }
+  if (a === 'agrefresh') { await loadAgenda(); return; }
+  if (a === 'aglens') { if (state.lens === AGENDA) setLens(null); else { setLens(AGENDA); if (mobile()) $('panel').classList.remove('big'); } return; }
+  if (a === 'exitdemo' || a === 'trydemo') {
+    const on = a === 'trydemo';
+    try { await API.agendaAct({ action: 'demo', on }); if (state.lens === AGENDA) setLens(null, { fly: false }); state.drafts = {}; AG.data = null; renderPanel(true); await loadAgenda(); toast(on ? 'Showing demo data built from your people' : 'Demo data hidden. Your people, notes and follow-ups stay.'); } catch (err) { toastErr(err); }
+    return;
+  }
   if (a === 'wipe') { state.confirm = 'wipe'; renderPanel(true); return; }
   if (a === 'wipe-yes') { try { await API.deleteAllPeople(); D.people = []; state.confirm = null; reindex(); draw(); renderPanel(); toast('Everyone removed'); } catch (err) { toastErr(err); } return; }
   if (a === 'addcircle') { const used = new Set(D.circles.map((c) => c.id)); let n = 1; while (used.has('c' + n)) n++; D.circles.push({ id: 'c' + n, label: 'New circle', color: D.circles.length % 8 }); saveCircles(); setTimeout(() => { const l = document.querySelector(`[data-clabel="${D.circles.length - 1}"]`); l?.focus(); l?.select(); }, 0); }
+}
+/* ================= agenda actions ================= */
+const newId = (pfx) => pfx + Date.now().toString(36) + uid8();
+const tomorrow9 = () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d.toISOString(); };
+async function demoAct(id, s, until?) { await API.agendaAct({ action: 'act', id, s, until }); }
+async function setFollowUp(id, patch, msg?) {
+  const f = AG.data.followUps.find((x) => x.id === id); if (!f) return;
+  const prev = { ...f }; Object.assign(f, patch); recompute(); renderPanel(true); if (state.lens === AGENDA) draw();
+  try {
+    if (f.demo) await demoAct(f.id, f.status === 'open' ? 'open' : f.status, f.until);
+    else await API.saveFollowUp(f);
+    if (msg) toast(msg, { action: { label: 'Undo', run: () => setFollowUp(id, { status: prev.status, until: prev.until, doneAt: prev.doneAt }) } });
+  } catch (err) { Object.assign(f, prev); recompute(); renderPanel(true); toastErr(err); }
+}
+async function setThread(id, s) {
+  const i = AG.data.threads.findIndex((x) => x.id === id); if (i < 0) return;
+  const [th] = AG.data.threads.splice(i, 1); recompute(); renderPanel(true); if (state.lens === AGENDA) draw();
+  const undo = async () => { AG.data.threads.splice(i, 0, th); recompute(); renderPanel(true); try { await demoAct(id, 'open'); } catch (err) { toastErr(err); } };
+  try { await demoAct(id, s, s === 'snoozed' ? tomorrow9() : undefined); toast(s === 'snoozed' ? 'Snoozed until tomorrow' : s === 'done' ? 'Marked as handled' : 'Dismissed', { action: { label: 'Undo', run: undo } }); }
+  catch (err) { AG.data.threads.splice(i, 0, th); recompute(); renderPanel(true); toastErr(err); }
+}
+async function makeDraft(key, kind, pid, about) {
+  state.drafts[key] = { text: 'Writing…', pid }; renderPanel(true);
+  try { const r = await API.nudge(kind, pid, about); state.drafts[key] = { text: r.text, pid, subject: kind === 'followup' ? '' : about }; }
+  catch (err) { delete state.drafts[key]; toastErr(err); }
+  renderPanel(true);
+}
+function agendaClick(t) {
+  const fd = t.closest('[data-fudone]'); if (fd) { setFollowUp(fd.dataset.fudone, { status: 'done', doneAt: new Date().toISOString(), until: undefined }, 'Done. Nice follow-through'); return true; }
+  const fs = t.closest('[data-fusnooze]'); if (fs) { setFollowUp(fs.dataset.fusnooze, { status: 'snoozed', until: tomorrow9() }, 'Snoozed until tomorrow'); return true; }
+  const th = t.closest('[data-thact]'); if (th) { const [s, id] = th.dataset.thact.split('|'); setThread(id, s); return true; }
+  const dr = t.closest('[data-draft]'); if (dr) {
+    const [kind, pid, id] = dr.dataset.draft.split('|');
+    if (kind === 'followup') { const f = AG.data.followUps.find((x) => x.id === id); makeDraft('f-' + id, kind, pid, f?.title || ''); }
+    else { const x = AG.data.threads.find((y) => y.id === id); makeDraft('t-' + id, kind, pid, x?.subject || ''); }
+    return true;
+  }
+  const ud = t.closest('[data-undraft]'); if (ud) { delete state.drafts[ud.dataset.undraft]; renderPanel(true); return true; }
+  const mt = t.closest('[data-mailto]'); if (mt) { const k = mt.dataset.mailto, d = state.drafts[k], p = byId(d.pid), body = $('draft-' + k).value; location.href = `mailto:${encodeURIComponent(p.email)}?subject=${encodeURIComponent(d.subject ? (/^re:/i.test(d.subject) ? d.subject : 'Re: ' + d.subject) : '')}&body=${encodeURIComponent(body)}`; return true; }
+  const mo = t.closest('[data-more]'); if (mo) { state.more[mo.dataset.more] = !state.more[mo.dataset.more]; renderPanel(true); return true; }
+  const pl = t.closest('[data-place]'); if (pl) { setLens('place:' + pl.dataset.place); return true; }
+  const ta = t.closest('[data-tripask]'); if (ta) { $('askIn').value = ta.dataset.tripask; runAgent(ta.dataset.tripask); return true; }
+  const jp = t.closest('[data-jump]'); if (jp) { $(jp.dataset.jump)?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' }); return true; }
+  const sk = t.closest('[data-capskip]'); if (sk) { const e = AG.data.events.find((x) => x.id === sk.dataset.capskip); if (e) { e.captured = true; recompute(); renderPanel(true); if (e.demo) demoAct(e.id, 'captured').catch(toastErr); } return true; }
+  const sa = t.closest('[data-sgadd]'); if (sa) { const g = AG.data.suggested.find((x) => x.email === sa.dataset.sgadd); state.edit = { id: null, from: 'today', prefill: { n: g.name, email: g.email } }; state.tab = 'people'; state.view = 'today'; if (mobile()) $('panel').classList.add('big'); draw(); renderPanel(); return true; }
+  const sn = t.closest('[data-sgno]'); if (sn) { const em = sn.dataset.sgno; AG.data.suggested = AG.data.suggested.filter((x) => x.email !== em); recompute(); renderPanel(true); demoAct('demo-sg-' + em, 'dismissed').then(() => toast('Ignored. They won’t be suggested again.'), toastErr); return true; }
+  const fa = t.closest('[data-fuadd]'); if (fa) { state.fuFor = fa.dataset.fuadd; renderPanel(true); setTimeout(() => $('fuT')?.focus(), 0); return true; }
+  if (t.closest('[data-fucancel]')) { state.fuFor = null; renderPanel(true); return true; }
+  const dn = t.closest('[data-delnote]'); if (dn) { const id = dn.dataset.delnote, i = AG.data.notes.findIndex((n) => n.id === id); if (i < 0) return true; const [n] = AG.data.notes.splice(i, 1); recompute(); renderPanel(true); API.deleteNote(id).then(() => toast('Note deleted'), (err) => { AG.data.notes.splice(i, 0, n); recompute(); renderPanel(true); toastErr(err); }); return true; }
+  return false;
+}
+const dueOf = (name) => dueISO(document.querySelector(`input[name="${name}-due"]:checked`)?.value);
+async function saveCapture(form) {
+  const e = AG.data.events.find((x) => x.id === form.dataset.ev); if (!e) return;
+  const body = $('capNote').value.trim(), fuOn = $('capFuOn').checked, fuT = fuOn ? $('capFuT').value.trim() : '';
+  if (!body && !fuT) { $('capNote').focus(); toast('Write a quick note, or choose Not now'); return; }
+  const btn = form.querySelector('[type=submit]'); btn.disabled = true; btn.classList.add('busy');
+  try {
+    const note = { id: newId('n'), body: body || fuT, people: e.people, eventId: e.id, at: new Date().toISOString(), source: 'sparkles' };
+    const r = await API.saveNote(note); AG.data.notes.unshift(r.note);
+    if (fuT) { const f = await API.saveFollowUp({ id: newId('f'), personId: e.people[0], title: fuT, due: dueOf('cap'), status: 'open', origin: 'meeting', eventId: e.id, created: new Date().toISOString() }); AG.data.followUps.push(f.followUp); }
+    if (e.demo) demoAct(e.id, 'captured').catch(() => {});
+    recompute(); renderPanel(true); if (state.lens === AGENDA) draw();
+    toast(`Saved. Last contact with ${namesOf(e.people).join(' and ')}: today`);
+  } catch (err) { btn.disabled = false; btn.classList.remove('busy'); toastErr(err); }
+}
+async function saveNoteForm(form) {
+  const pid = form.dataset.pid, ta = $('noteT'), body = ta.value.trim(); if (!body) { ta.focus(); return; }
+  const btn = form.querySelector('[type=submit]'); btn.disabled = true; btn.classList.add('busy');
+  try { const r = await API.saveNote({ id: newId('n'), body, people: [pid], at: new Date().toISOString(), source: 'sparkles' }); AG.data.notes.unshift(r.note); recompute(); renderPanel(true); toast('Note saved'); }
+  catch (err) { btn.disabled = false; btn.classList.remove('busy'); toastErr(err); }
+}
+async function saveFuForm(form) {
+  const pid = form.dataset.pid, title = $('fuT').value.trim(); if (!title) { $('fuT').focus(); return; }
+  const btn = form.querySelector('[type=submit]'); btn.disabled = true; btn.classList.add('busy');
+  try { const r = await API.saveFollowUp({ id: newId('f'), personId: pid, title, due: dueOf('fu'), status: 'open', origin: 'manual', created: new Date().toISOString() }); AG.data.followUps.push(r.followUp); state.fuFor = null; recompute(); renderPanel(true); toast(r.followUp.due && ms(r.followUp.due) < sod() + DAY ? 'Added. It’s on Today' : 'Follow-up added'); }
+  catch (err) { btn.disabled = false; btn.classList.remove('busy'); toastErr(err); }
 }
 async function savePersonForm() {
   const g = (id) => $(id).value.trim();
@@ -634,6 +910,7 @@ async function savePersonForm() {
   const circle = document.querySelector('input[name="f-m"]:checked')?.value || '';
   Object.assign(p, { n: g('f-n'), m: circle, role: g('f-role'), company: g('f-company'), doing: g('f-doing'), note: g('f-note'), url: g('f-url'), email: g('f-email') });
   p.tags = g('f-tags').split(',').map((s) => s.trim()).filter(Boolean);
+  const ev = g('f-every'); if (ev === '') delete p.every; else p.every = +ev;
   const last = g('f-last'); p.last = last ? new Date(last + 'T12:00:00').toISOString() : '';
   const cityIn = g('f-city');
   if (cityIn && cityIn !== (existing && existing.city ? existing.city + (existing.country ? ', ' + existing.country : '') : '')) {
@@ -786,6 +1063,17 @@ async function loadAll() {
     if (API === FETCH_API && (err.status === 401 || err.status === 403)) { location.href = err.status === 401 ? '/login' : '/no-access'; return; }
   }
   reindex(); drawBar(); draw(); renderPanel();
+  if (D.loaded) loadAgenda();
+}
+// Polling only: refresh on open, every 5 minutes while Today is on screen, and when the tab comes back.
+const POLL = 5 * MIN;
+function todayOnScreen() { return document.visibilityState === 'visible' && state.view === 'today' && state.tab === 'today'; }
+function startPolling() {
+  setInterval(() => {
+    if (!todayOnScreen()) return;
+    if (Date.now() - AG.at >= POLL) loadAgenda(); else { const u = $('agUpd'); if (u) u.textContent = updLabel(); }
+  }, MIN);
+  document.addEventListener('visibilitychange', () => { if (todayOnScreen() && AG.data && Date.now() - AG.at >= POLL) loadAgenda(); });
 }
 let started = false;
 export async function start(viewer: Viewer, api = FETCH_API) {
@@ -793,7 +1081,7 @@ export async function start(viewer: Viewer, api = FETCH_API) {
   started = true;
   VIEWER = viewer; API = api;
   $('cityList').innerHTML = CITIES.slice(0, 2500).map((c) => `<option value="${esc(c[0])}, ${esc(COUNTRY_NAMES[c[1]] || c[1])}">`).join('');
-  initMap(); bindMap(); bindBar(); bindPanel(); bindAccount(); renderAccount();
+  initMap(); bindMap(); bindBar(); bindPanel(); bindAccount(); renderAccount(); if (hasAgenda()) startPolling();
   setCircles([]); drawBar(); renderPanel();
   const onResize = () => { layout(); };
   addEventListener('resize', onResize); layout();

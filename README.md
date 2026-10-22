@@ -24,14 +24,16 @@ npm run dev
 
 Open http://localhost:3000 (or run `npm run dev:local` for http://localhost:4387). With no Supabase keys this is **local mode**: one user, no sign-in, data saved in `.data/` in this folder. Good for trying it out.
 
-No data yet? On the welcome screen choose **Explore with sample people** to load 28 sample people around the world (remove them from the account menu or the Today banner). With no `ANTHROPIC_API_KEY`, Ask still works offline: it matches your words to people's notes and interests and suggests simple plans and drafts.
+No data yet? On the welcome screen choose **Explore with sample people** to load 28 sample people around the world (remove them from the account menu or the Today banner). Sample people are offered in local mode only.
+
+**Today dashboard.** Today shows your meetings, a brief for the next one, an after-meeting note prompt, follow-ups, emails waiting on you or on them, trips and people to reconnect with. Until a calendar or email account is connected, it runs on **demo data** generated from your own people (a "Demo data" badge with **Exit demo** sits at the top). Demo items are never stored; notes and follow-ups you write are real. Demo data is automatic in local mode and opt-in ("Try demo data") with Supabase; `AGENDA_DEMO=1` turns it on by default everywhere. The dashboard refreshes when you open the app and every 5 minutes while Today is on screen. With no `ANTHROPIC_API_KEY`, Ask still works offline: it matches your words to people's notes and interests and suggests simple plans and drafts.
 
 > Keep the project outside an iCloud-synced folder (Desktop or Documents with "Optimize Mac Storage"). macOS can offload source files there, which stalls `next dev` and git.
 
 ## 2. Turn on accounts and invites (Supabase, free tier is fine)
 
 1. Create a project at [supabase.com](https://supabase.com).
-2. In **SQL Editor**, paste and run `supabase/migrations/0001_sparkles.sql`.
+2. In **SQL Editor**, paste and run `supabase/migrations/0001_sparkles.sql`, then `0002_agenda.sql` (notes, follow-ups, and the tables for calendar and email sync).
 3. In **Authentication → URL Configuration**:
    - Site URL: `http://localhost:3000` (later your real address)
    - Redirect URLs: add `http://localhost:3000/**` (and later `https://your-domain/**`)
@@ -61,7 +63,8 @@ People who open an invite link enter their email, click the sign-in link, and la
 | Data | `lib/store/supabase.ts` (Supabase, row level security) or `lib/store/local.ts` (local mode) |
 | AI | `lib/ai.ts` — maps, drafts, next steps, city lookup, each with a non-AI fallback |
 | Cities | `lib/geo/gazetteer.json` (~3,700 cities, GeoNames via all-the-cities) + `tz-lookup`; Claude looks up the rest |
-| Database | `supabase/migrations/0001_sparkles.sql` |
+| Today dashboard | `lib/agenda/` — `demo.ts` (demo source), `build.ts` (modules), `clean.ts` (event descriptions); check with `npm run check:agenda` |
+| Database | `supabase/migrations/0001_sparkles.sql`, `0002_agenda.sql` |
 
 **Privacy.** Each person's people, notes and maps are visible only to them (row level security on every table; non-members can't read or write anything). Invites are only readable by the server. When someone asks Sparkles something, up to 160 of their most relevant contacts (name, city, role, interests, notes) are sent to the Anthropic API to answer it.
 
@@ -69,6 +72,6 @@ People who open an invite link enter their email, click the sign-in link, and la
 
 ## Not built yet
 
-- Automatic refresh from Gmail, Calendar or LinkedIn (imports are CSV for now; LinkedIn exports don't include cities).
+- Real Google Calendar, Gmail, Outlook and notes connections (the dashboard runs on demo data until then). LinkedIn still imports by CSV, and its exports don't include cities.
 - Sharing a plan with the other person inside the app (today you copy the drafted message).
 - Usage limits per member for AI calls.

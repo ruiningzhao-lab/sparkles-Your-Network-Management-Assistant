@@ -1,0 +1,255 @@
+{
+ "now": "2026-10-22T16:45:00.000Z",
+ "tzOffset": 420,
+ "data": {
+  "events": [
+   {
+    "id": "demo-ev-past2",
+    "title": "Lunch with Noor",
+    "start": "2026-10-10T19:30:00.000Z",
+    "end": "2026-10-10T20:30:00.000Z",
+    "people": [
+     "sample-noor"
+    ],
+    "demo": true
+   },
+   {
+    "id": "demo-ev-past1",
+    "title": "Chen / you",
+    "start": "2026-10-16T23:00:00.000Z",
+    "end": "2026-10-16T23:30:00.000Z",
+    "people": [
+     "sample-chen"
+    ],
+    "demo": true
+   },
+   {
+    "id": "demo-ev-ended",
+    "title": "Coffee with Rachel",
+    "start": "2026-10-22T15:30:00.000Z",
+    "end": "2026-10-22T16:15:00.000Z",
+    "location": "San Francisco",
+    "ck": "San Francisco|US",
+    "city": "San Francisco",
+    "people": [
+     "sample-rachel"
+    ],
+    "demo": true
+   },
+   {
+    "id": "demo-ev-next",
+    "title": "Call with Isabel",
+    "start": "2026-10-22T17:15:00.000Z",
+    "end": "2026-10-22T17:45:00.000Z",
+    "joinUrl": "https://us02web.zoom.us/j/81234567890?pwd=SparklesDemo",
+    "description": "Agenda:\n• Catch up on photography\n• Isabel’s plans for next quarter\n\nShared notes: running doc",
+    "links": [
+     "https://docs.google.com/document/d/sparkles-demo"
+    ],
+    "people": [
+     "sample-isabel"
+    ],
+    "demo": true
+   },
+   {
+    "id": "demo-ev-later",
+    "title": "Architecture catch-up",
+    "start": "2026-10-22T20:15:00.000Z",
+    "end": "2026-10-22T21:15:00.000Z",
+    "description": "Bring ideas about architecture.",
+    "people": [
+     "sample-jo",
+     "sample-priya"
+    ],
+    "demo": true
+   },
+   {
+    "id": "demo-ev-d1",
+    "title": "Intro call: Chen",
+    "start": "2026-10-24T00:00:00.000Z",
+    "end": "2026-10-24T00:30:00.000Z",
+    "people": [
+     "sample-chen"
+    ],
+    "demo": true
+   },
+   {
+    "id": "demo-ev-d5",
+    "title": "Call with Noor",
+    "start": "2026-10-27T17:00:00.000Z",
+    "end": "2026-10-27T17:45:00.000Z",
+    "people": [
+     "sample-noor"
+    ],
+    "demo": true
+   },
+   {
+    "id": "demo-ev-trip",
+    "title": "Trip to Berlin",
+    "start": "2026-10-24T07:00:00.000Z",
+    "end": "2026-10-27T07:00:00.000Z",
+    "allDay": true,
+    "location": "Berlin",
+    "ck": "Berlin|DE",
+    "city": "Berlin",
+    "people": [],
+    "demo": true
+   },
+   {
+    "id": "demo-ev-trip-mtg",
+    "title": "Coffee with Lena in Berlin",
+    "start": "2026-10-25T09:00:00.000Z",
+    "end": "2026-10-25T10:00:00.000Z",
+    "location": "Berlin",
+    "ck": "Berlin|DE",
+    "city": "Berlin",
+    "people": [
+     "sample-lena"
+    ],
+    "demo": true
+   }
+  ],
+  "threads": [
+   {
+    "id": "demo-th-1",
+    "subject": "Intro to Ana?",
+    "people": [
+     "sample-kai"
+    ],
+    "lastAt": "2026-10-19T14:45:00.000Z",
+    "lastInboundAt": "2026-10-19T14:45:00.000Z",
+    "awaiting": "me",
+    "demo": true
+   },
+   {
+    "id": "demo-th-2",
+    "subject": "Quick question about ocean",
+    "people": [
+     "sample-olivia"
+    ],
+    "lastAt": "2026-10-21T10:45:00.000Z",
+    "lastInboundAt": "2026-10-21T10:45:00.000Z",
+    "awaiting": "me",
+    "demo": true
+   },
+   {
+    "id": "demo-th-3",
+    "subject": "Photos from the weekend",
+    "people": [
+     "sample-sam"
+    ],
+    "lastAt": "2026-10-17T16:45:00.000Z",
+    "lastInboundAt": "2026-10-17T16:45:00.000Z",
+    "awaiting": "me",
+    "demo": true
+   },
+   {
+    "id": "demo-th-4",
+    "subject": "Re: climate next steps",
+    "people": [
+     "sample-ana"
+    ],
+    "lastAt": "2026-10-16T13:45:00.000Z",
+    "lastOutboundAt": "2026-10-16T13:45:00.000Z",
+    "awaiting": "them",
+    "demo": true
+   },
+   {
+    "id": "demo-th-5",
+    "subject": "Following up on our chat",
+    "people": [
+     "sample-ada"
+    ],
+    "lastAt": "2026-10-13T16:45:00.000Z",
+    "lastOutboundAt": "2026-10-13T16:45:00.000Z",
+    "awaiting": "them",
+    "demo": true
+   }
+  ],
+  "notes": [
+   {
+    "id": "demo-no-1",
+    "body": "Talked about product. Wants an intro to someone who has done this before.",
+    "people": [
+     "sample-chen"
+    ],
+    "eventId": "demo-ev-past1",
+    "source": "sparkles",
+    "at": "2026-10-17T08:45:00.000Z",
+    "demo": true
+   },
+   {
+    "id": "demo-no-2",
+    "body": "Isabel is thinking about what’s next. Promised to send the deck.",
+    "people": [
+     "sample-isabel"
+    ],
+    "source": "sparkles",
+    "at": "2026-10-13T16:45:00.000Z",
+    "demo": true
+   },
+   {
+    "id": "demo-no-3",
+    "body": "Great lunch. Noor recommended a book on cooking.",
+    "people": [
+     "sample-noor"
+    ],
+    "eventId": "demo-ev-past2",
+    "source": "sparkles",
+    "at": "2026-10-11T06:45:00.000Z",
+    "demo": true
+   }
+  ],
+  "followUps": [
+   {
+    "id": "demo-fu-1",
+    "personId": "sample-isabel",
+    "title": "Send Isabel the deck you mentioned",
+    "due": "2026-10-21T00:00:00.000Z",
+    "status": "open",
+    "origin": "meeting",
+    "eventId": "demo-ev-past1",
+    "created": "2026-10-19T16:45:00.000Z",
+    "demo": true
+   },
+   {
+    "id": "demo-fu-2",
+    "personId": "sample-mira",
+    "title": "Send Mira that fundraising recommendation",
+    "due": "2026-10-23T00:00:00.000Z",
+    "status": "open",
+    "origin": "manual",
+    "created": "2026-10-19T16:45:00.000Z",
+    "demo": true
+   },
+   {
+    "id": "demo-fu-3",
+    "personId": "sample-chen",
+    "title": "Ask Chen how the launch went",
+    "due": "2026-10-26T17:00:00.000Z",
+    "status": "open",
+    "origin": "manual",
+    "created": "2026-10-19T16:45:00.000Z",
+    "demo": true
+   }
+  ],
+  "suggested": [
+   {
+    "email": "priya.natarajan@example.com",
+    "name": "Priya Natarajan",
+    "meetings": 2,
+    "threads": 1,
+    "lastAt": "2026-10-18T16:45:00.000Z",
+    "demo": true
+   },
+   {
+    "email": "tomas@example.org",
+    "name": "Tomás Ortega",
+    "meetings": 0,
+    "threads": 3,
+    "lastAt": "2026-10-20T16:45:00.000Z",
+    "demo": true
+   }
+  ]
+ }
+}

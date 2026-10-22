@@ -1,11 +1,12 @@
-import { member, ok } from '@/lib/api';
+import { bad, member, ok } from '@/lib/api';
 import { isSample, sampleHome, samplePeople } from '@/lib/demo/network';
 import { cleanCircles } from '@/lib/store/validate';
 
 export const dynamic = 'force-dynamic';
 
-/** Add the sample network (and a home city if none is set yet). */
-export const POST = member(async ({ store }) => {
+/** Add the sample network (and a home city if none is set yet). Local mode only. */
+export const POST = member(async ({ store, viewer }) => {
+  if (viewer.mode !== 'local') return bad('Sample people are only available in local mode.', 403);
   const { profile, people } = await store.load();
   const have = new Set(people.map((p) => p.id));
   const add = samplePeople().filter((p) => !have.has(p.id));

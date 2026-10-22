@@ -229,6 +229,23 @@ ${withPeople.map((x) => 'About ' + x.n + ': ' + personLine(x, circles)).join('\n
   }
 }
 
+/** A reply to their email, a nudge on yours, or a message that closes a follow-up. Email metadata only: `about` is a subject or a follow-up title. */
+export async function draftNudge(kind: 'reply' | 'nudge' | 'followup', p: Person, about: string, senderName: string, circles: Circle[] = []) {
+  const first = p.n.split(' ')[0];
+  const goal = kind === 'reply' ? `replying to their email${about ? ' with the subject “' + about + '”' : ''}. You haven’t read the body, so don’t claim to know what it said; acknowledge it and move things forward` : kind === 'nudge' ? `gently following up on an email you sent them${about ? ' about “' + about + '”' : ''} that they haven’t answered. No guilt, easy to reply to` : `doing what you said you would: ${about}`;
+  try {
+    return await ask(
+      `Write a short, warm message${senderName ? ' from ' + senderName : ''} to ${p.n}, ${goal}. 2 to 3 sentences, casual, no subject line, no placeholders like [Name], no sign-off. Use first names. Return only the message.
+About ${p.n}: ${personLine(p, circles)}`,
+      { tier: 'quick', maxTokens: 300 },
+    );
+  } catch {
+    if (kind === 'reply') return `Hi ${first}! Thanks for your note${about ? ' (“' + about.replace(/^re:\s*/i, '') + '”)' : ''}, and sorry for the slow reply. I’ll get back to you properly this week, or we could grab 20 minutes to talk it through.`;
+    if (kind === 'nudge') return `Hi ${first}, just floating this back up${about ? ' (' + about.replace(/^re:\s*/i, '') + ')' : ''}. No rush at all. Let me know if a quick call would be easier.`;
+    return `Hi ${first}! As promised: ${about.replace(/^(send|ask|share)\s+\S+\s+/i, '')}. Let me know what you think.`;
+  }
+}
+
 /** One small next step with a person. */
 export async function suggestNext(p: Person, home: Place | null, goals: string[], circles: Circle[] = []) {
   try {

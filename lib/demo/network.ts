@@ -32,7 +32,7 @@ const ROWS: Row[] = [
   ['rachel', 'Rachel Kim', 'work', 'San Francisco, United States', 'Designer', 'Figma', 'design, ceramics, climbing', 'Designing collaboration tools', 'Coffee buddy in Hayes Valley.', 8],
   ['omar', 'Omar Farouk', 'work', 'Dubai, United Arab Emirates', 'Investor', 'BECO Capital', 'fundraising, fintech, padel', 'Looking at seed fintech in MENA', 'Met at a dinner in Dubai.', 240],
   ['zoe', 'Zoe Martin', 'friends', 'Oakland, United States', 'Illustrator', '', 'art, jazz, cats', 'Illustrating a children’s book', 'Lives 20 minutes away, we should hang out more.', 65],
-  ['felix', 'Felix Wagner', 'work', 'Munich, Germany', 'Engineer', 'BMW', 'cars, ai, skiing', 'Working on driver-assist software', 'Asked about moving to the US.', 150],
+  ['felix', 'Felix Wagner', 'work', 'Berlin, Germany', 'Engineer', 'Bosch', 'cars, ai, skiing', 'Working on driver-assist software', 'Asked about moving to the US.', 150],
   ['isabel', 'Isabel Cruz', 'friends', 'Barcelona, Spain', 'Photographer', '', 'photography, travel, surfing', 'Shooting a travel series', 'Shot our team photos last year.', null],
   ['chen', 'Chen Wei', 'work', 'Shanghai, China', 'Product lead', 'ByteDance', 'product, ai, tea', 'Building AI creator tools', '', null],
   ['ada', 'Ada Okoro', 'work', 'Lagos, Nigeria', 'Founder', 'Paystack alumni fund', 'fintech, fundraising, music', 'Starting a pre-seed fund', 'Amara thinks we should meet.', null],

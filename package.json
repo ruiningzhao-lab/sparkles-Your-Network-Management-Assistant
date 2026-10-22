@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:local": "next dev -p 4387",
+    "check:agenda": "node scripts/agenda-check.mjs",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit"

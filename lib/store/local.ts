@@ -1,9 +1,9 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import type { MapDoc, Person, Profile, Store } from './types';
+import type { AgendaPrefs, FollowUp, MapDoc, Note, Person, Profile, Store } from './types';
 
 // Local mode: one JSON file per user under .data/. For trying Sparkles on your own machine.
-type Data = { profile: Profile | null; people: Person[]; maps: MapDoc[] };
+type Data = { profile: Profile | null; people: Person[]; maps: MapDoc[]; notes?: Note[]; followUps?: FollowUp[] };
 const DIR = path.join(process.cwd(), '.data');
 let chain: Promise<unknown> = Promise.resolve();
 
@@ -32,17 +32,21 @@ export class LocalStore implements Store {
     chain = run.catch(() => {});
     return run;
   }
-  async load() {
+  private async data() {
     await chain;
     return this.read();
   }
+  async load() {
+    const d = await this.data();
+    return { profile: d.profile, people: d.people, maps: d.maps };
+  }
   async saveProfile(p: Profile) {
     await this.change((d) => {
-      d.profile = p;
+      d.profile = { ...p, agenda: p.agenda ?? d.profile?.agenda };
     });
   }
   async listPeople() {
-    return (await this.load()).people;
+    return (await this.data()).people;
   }
   async upsertPeople(list: Person[]) {
     await this.change((d) => {
@@ -56,18 +60,25 @@ export class LocalStore implements Store {
       }
     });
   }
+  // Mirrors the cascades in 0002_agenda.sql: follow-ups go with the person, notes lose the link.
+  private unlink(d: Data, gone: (id: string) => boolean) {
+    d.followUps = (d.followUps || []).filter((f) => !gone(f.personId));
+    d.notes = (d.notes || []).map((n) => ({ ...n, people: n.people.filter((id) => !gone(id)) }));
+  }
   async deletePerson(id: string) {
     await this.change((d) => {
       d.people = d.people.filter((p) => p.id !== id);
+      this.unlink(d, (x) => x === id);
     });
   }
   async deleteAllPeople() {
     await this.change((d) => {
       d.people = [];
+      this.unlink(d, () => true);
     });
   }
   async getMap(id: string) {
-    return (await this.load()).maps.find((m) => m.id === id) || null;
+    return (await this.data()).maps.find((m) => m.id === id) || null;
   }
   async saveMap(m: MapDoc) {
     await this.change((d) => {
@@ -83,6 +94,37 @@ export class LocalStore implements Store {
   async deleteMap(id: string) {
     await this.change((d) => {
       d.maps = d.maps.filter((m) => m.id !== id);
+    });
+  }
+  async saveAgendaPrefs(a: AgendaPrefs) {
+    await this.change((d) => {
+      d.profile = { home: d.profile?.home || null, circles: d.profile?.circles, agenda: a };
+    });
+  }
+  async listNotes(limit = 300) {
+    return [...((await this.data()).notes || [])].sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
+  }
+  async saveNote(n: Note) {
+    await this.change((d) => {
+      d.notes = [n, ...(d.notes || []).filter((x) => x.id !== n.id)];
+    });
+  }
+  async deleteNote(id: string) {
+    await this.change((d) => {
+      d.notes = (d.notes || []).filter((x) => x.id !== id);
+    });
+  }
+  async listFollowUps() {
+    return (await this.data()).followUps || [];
+  }
+  async saveFollowUp(f: FollowUp) {
+    await this.change((d) => {
+      d.followUps = [f, ...(d.followUps || []).filter((x) => x.id !== f.id)];
+    });
+  }
+  async deleteFollowUp(id: string) {
+    await this.change((d) => {
+      d.followUps = (d.followUps || []).filter((x) => x.id !== id);
     });
   }
 }

@@ -1,4 +1,4 @@
-import type { Circle, MapDoc, Person, Place } from './types';
+import type { Circle, FollowUp, MapDoc, Note, Person, Place } from './types';
 
 export const DEFAULT_CIRCLES: Circle[] = [
   { id: 'work', label: 'Work', color: 0 },
@@ -50,6 +50,8 @@ export function cleanPerson(raw: any): Person | null {
     connected: isoDate(raw.connected),
     added: num(raw.added),
   };
+  const every = num(raw.every);
+  if (every !== undefined && Number.isInteger(every) && every >= 0 && every <= 3650) p.every = every;
   const place = cleanPlace(raw);
   if (place) Object.assign(p, place);
   return p;
@@ -79,4 +81,46 @@ export function cleanCircles(raw: unknown): Circle[] {
     out.push({ id, label, color: Number.isInteger(color) && color >= 0 && color < 8 ? color : out.length % 8 });
   }
   return out;
+}
+
+const itemId = (v: unknown) => (typeof v === 'string' && /^[A-Za-z0-9_-]{1,60}$/.test(v) ? v : '');
+
+/** A native note from the browser. Returns null if it has no text. */
+export function cleanNote(raw: any, personIds: Set<string>): Note | null {
+  const id = itemId(raw?.id);
+  const body = str(raw?.body, 20000);
+  if (!id || !body) return null;
+  return {
+    id,
+    body,
+    title: str(raw.title, 200) || undefined,
+    people: strList(raw.people, 20, 40).filter((x) => personIds.has(x)),
+    eventId: str(raw.eventId, 80) || undefined,
+    source: 'sparkles',
+    at: isoDate(raw.at) || new Date().toISOString(),
+  };
+}
+
+const ORIGINS = ['manual', 'meeting', 'email', 'cadence', 'ai'];
+const STATUSES = ['open', 'done', 'snoozed'];
+
+export function cleanFollowUp(raw: any, personIds: Set<string>): FollowUp | null {
+  const id = itemId(raw?.id);
+  const personId = str(raw?.personId, 40);
+  const title = str(raw?.title, 300);
+  if (!id || !title || !personIds.has(personId)) return null;
+  const status = STATUSES.includes(raw.status) ? raw.status : 'open';
+  return {
+    id,
+    personId,
+    title,
+    due: isoDate(raw.due),
+    status,
+    until: status === 'snoozed' ? isoDate(raw.until) : undefined,
+    origin: ORIGINS.includes(raw.origin) ? raw.origin : 'manual',
+    eventId: str(raw.eventId, 80) || undefined,
+    threadId: str(raw.threadId, 80) || undefined,
+    created: isoDate(raw.created) || new Date().toISOString(),
+    doneAt: status === 'done' ? isoDate(raw.doneAt) || new Date().toISOString() : undefined,
+  };
 }
