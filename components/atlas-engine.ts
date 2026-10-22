@@ -565,10 +565,16 @@ function planInMode(p) {
   if (state.mode === 'all') return true;
   return (p.with || []).some((id) => personInMode(id));
 }
+function mapPersonIds(s) {
+  return [
+    ...(s.sec || []).map(secOf).flatMap((x) => (Array.isArray(x[1]) ? x[1] : [])),
+    ...(s.plans || []).flatMap((p) => p.with || []),
+  ].filter((id) => typeof id === 'string' && id);
+}
 function mapInMode(s) {
   if (state.mode === 'all') return true;
   if (s.m === state.mode) return true;
-  const ids = [...(s.sec || []).flatMap(secOf).flatMap((x) => x[1] || []), ...(s.plans || []).flatMap((p) => p.with || [])];
+  const ids = mapPersonIds(s);
   return ids.length > 0 && ids.every((id) => personInMode(id));
 }
 function ideasForMode() {
