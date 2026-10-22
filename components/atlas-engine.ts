@@ -318,16 +318,16 @@ function syncAskPlaceholder() {
 function bindBar() {
   syncAskPlaceholder();
   addEventListener('resize', syncAskPlaceholder);
-  document.querySelector('.top').addEventListener('click', (e) => {
+  document.querySelector('.top')?.addEventListener('click', (e) => {
     const m = e.target.closest('[data-mode]'); if (m) { state.mode = m.dataset.mode; drawBar(); draw(); renderPanel(true); return; }
     const l = e.target.closest('[data-layer]'); if (l) { state.layers.disc = !state.layers.disc; drawBar(); draw(); return; }
     if (e.target.closest('#clearLens')) setLens(null);
   });
-  $('strip').addEventListener('click', (e) => {
+  $('strip')?.addEventListener('click', (e) => {
     const m = e.target.closest('[data-map]'); if (m) { openMap(m.dataset.map); return; }
     const i = e.target.closest('[data-idea]'); if (i) useIdea(+i.dataset.idea);
   });
-  $('askForm').addEventListener('submit', (e) => {
+  $('askForm')?.addEventListener('submit', (e) => {
     e.preventDefault(); const q = $('askIn').value.trim(); if (!q) return;
     const p = D.people.find((p) => p.n.toLowerCase() === q.toLowerCase()); if (p) { openPerson(p.id); return; }
     runAgent(q);
@@ -813,13 +813,11 @@ function renderPeople() {
    <div class="h4">Circles</div>
    <p class="optin">Group people your own way. Rename, recolor or add circles.</p>
    ${(D.circles || []).map((c, i) => `<div class="c-edit"><button class="c-dot" style="background:var(--c${c.color})" data-ccolor="${i}" aria-label="Change color of ${esc(c.label)}"></button><input data-clabel="${i}" value="${esc(c.label)}" maxlength="24" aria-label="Circle name"><button class="btn sm ghost" data-cdel="${i}">Remove</button></div>`).join('')}
-   <div class="btns">${D.circles.length < 12 ? `<button class="btn sm" data-act="addcircle">Add a circle</button>` : ''}</div>
+   <div class="btns">${(D.circles || []).length < 12 ? `<button class="btn sm" data-act="addcircle">Add a circle</button>` : ''}</div>
    <div class="h4">Settings</div>
    <div class="btns"><button class="btn sm" data-act="home">${icon('pin', 16)}Home: ${esc(home()?.city || 'Set home')}</button>${D.people.some(isSampleP) ? `<button class="btn sm" data-act="clearsample">Remove sample people</button>` : ''}${D.people.length ? `<button class="btn sm ghost" data-act="wipe">Remove everyone</button>` : ''}</div>
    ${state.confirm === 'wipe' ? `<div class="confirm">Remove all ${D.people.length} people? Your maps stay. This can’t be undone.<div class="btns"><button class="btn sm danger" data-act="wipe-yes">Remove everyone</button><button class="btn sm" data-cancel>Cancel</button></div></div>` : ''}
-   ${state.confirm === 'home' ? `<form class="form" id="homeForm"><label>Home city<input id="homeCity" list="cityList" value="${esc(home().city)}" autocomplete="off" required></label><div class="btns" style="margin-top:0"><button class="btn sm go" type="submit">Save</button><button class="btn sm" type="button" data-cancel>Cancel</button></div></form>` : ''}`;
-  const inp = $('pq'); inp?.addEventListener('input', () => { state.pq = inp.value; state.plimit = 60; const pos = inp.selectionStart; renderPanel(true); const n = $('pq'); n.focus(); n.setSelectionRange(pos, pos); });
-  $('impCircle')?.addEventListener('change', (e) => (state.importCircle = e.target.value));
+   ${state.confirm === 'home' ? `<form class="form" id="homeForm"><label>Home city<input id="homeCity" list="cityList" value="${esc(home()?.city || '')}" autocomplete="off" required></label><div class="btns" style="margin-top:0"><button class="btn sm go" type="submit">Save</button><button class="btn sm" type="button" data-cancel>Cancel</button></div></form>` : ''}`;
 }
 function renderEdit() {
   const p = state.edit.id ? byId(state.edit.id) : null, v = p || { m: state.mode !== 'all' ? state.mode : '', ...(state.edit.prefill || {}) };
@@ -848,14 +846,14 @@ function renderEdit() {
     <div class="formbar">${p ? `<button class="btn ghost danger-text" type="button" data-delp="${esc(p.id)}">Delete</button>` : ''}<span class="sp"></span><button class="btn" type="button" data-back-edit>Cancel</button><button class="btn go" type="submit" id="saveBtn">${p ? 'Save changes' : 'Add to map'}</button></div>
    </form>`;
   const ci = $('f-city'), hint = $('cityHint');
-  ci.addEventListener('input', () => {
+  ci?.addEventListener('input', () => {
     const q = ci.value.trim(); hint.hidden = !q;
     if (!q) return;
     const hit = findCity(q);
     hint.className = hit ? 'ok' : 'hint';
     hint.innerHTML = hit ? `${icon('check', 13)}${esc(hit.city)}, ${esc(hit.country)}` : 'We’ll look this up when you save.';
   });
-  $('f-n').addEventListener('input', (e) => { if (e.target.value.trim()) { e.target.removeAttribute('aria-invalid'); $('e-n').hidden = true; } });
+  $('f-n')?.addEventListener('input', (e) => { if (e.target.value.trim()) { e.target.removeAttribute('aria-invalid'); $('e-n').hidden = true; } });
 }
 function personAgenda(p) {
   if (!hasAgenda() || !AG.data) return '';
@@ -950,7 +948,21 @@ function bindPanel() {
     if (t.closest('input,select,textarea,a')) return;
     const pr = t.closest('[data-person]'); if (pr) { openPerson(pr.dataset.person); return; }
   });
-  pb.addEventListener('change', (e) => { const l = e.target.closest('[data-clabel]'); if (l) { const v = l.value.trim(); if (v) { D.circles[+l.dataset.clabel].label = v.slice(0, 24); saveCircles(); } } });
+  pb.addEventListener('input', (e) => {
+    if (e.target.id !== 'pq') return;
+    const inp = e.target;
+    state.pq = inp.value;
+    state.plimit = 60;
+    const pos = inp.selectionStart;
+    renderPanel(true);
+    const n = $('pq');
+    n?.focus();
+    if (n && pos != null) try { n.setSelectionRange(pos, pos); } catch {}
+  });
+  pb.addEventListener('change', (e) => {
+    if (e.target.id === 'impCircle') { state.importCircle = e.target.value; return; }
+    const l = e.target.closest('[data-clabel]'); if (l) { const v = l.value.trim(); if (v) { D.circles[+l.dataset.clabel].label = v.slice(0, 24); saveCircles(); } }
+  });
   pb.addEventListener('keydown', async (e) => {
     if (e.key === 'Enter' && e.target.matches('[data-placeid]')) {
       e.preventDefault(); const inp = e.target; const p = byId(inp.dataset.placeid); inp.disabled = true;
@@ -978,8 +990,8 @@ function bindPanel() {
   pb.addEventListener('change', (e) => { if (e.target.id === 'capFuOn') { $('capFu').hidden = !e.target.checked; if (e.target.checked) $('capFuT').focus(); } });
   pb.addEventListener('mouseover', (e) => { const r = e.target.closest('[data-person],[data-hl]'); const ids = r ? (r.dataset.hl != null ? r.dataset.hl.split(',').filter(Boolean) : [r.dataset.person]) : []; if (ids.join() !== state.hl.join()) { state.hl = ids; draw(); } });
   pb.addEventListener('mouseleave', () => { if (state.hl.length) { state.hl = []; draw(); } });
-  $('handle').onclick = () => $('panel').classList.toggle('big');
-  $('csvIn').addEventListener('change', importCsv);
+  const handle = $('handle'); if (handle) handle.onclick = () => $('panel').classList.toggle('big');
+  $('csvIn')?.addEventListener('change', importCsv);
 }
 let circleTimer;
 function saveCircles() {
