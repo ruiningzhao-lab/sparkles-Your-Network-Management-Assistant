@@ -319,7 +319,7 @@ function bindBar() {
   syncAskPlaceholder();
   addEventListener('resize', syncAskPlaceholder);
   document.querySelector('.top').addEventListener('click', (e) => {
-    const m = e.target.closest('[data-mode]'); if (m) { state.mode = m.dataset.mode; drawBar(); draw(); if (state.view === 'today') renderPanel(true); return; }
+    const m = e.target.closest('[data-mode]'); if (m) { state.mode = m.dataset.mode; drawBar(); draw(); renderPanel(true); return; }
     const l = e.target.closest('[data-layer]'); if (l) { state.layers.disc = !state.layers.disc; drawBar(); draw(); return; }
     if (e.target.closest('#clearLens')) setLens(null);
   });
@@ -551,9 +551,11 @@ function threadRow(t, kind) {
 }
 function circleKind() {
   if (state.mode === 'all') return 'all';
-  if (state.mode === 'work') return 'work';
-  if (state.mode === 'family') return 'family';
-  if (state.mode === 'friends') return 'friends';
+  if (state.mode === 'work' || state.mode === 'friends' || state.mode === 'family') return state.mode;
+  const label = MODES[state.mode]?.l?.toLowerCase();
+  if (label === 'work') return 'work';
+  if (label === 'friends' || label === 'friend') return 'friends';
+  if (label === 'family') return 'family';
   return 'other';
 }
 function personInMode(id) {
@@ -572,7 +574,7 @@ function mapPersonIds(s) {
   ].filter((id) => typeof id === 'string' && id);
 }
 function mapInMode(s) {
-  if (state.mode === 'all') return true;
+  if (!s || state.mode === 'all') return true;
   if (s.m === state.mode) return true;
   const ids = mapPersonIds(s);
   return ids.length > 0 && ids.every((id) => personInMode(id));
@@ -587,30 +589,33 @@ function ideasForMode() {
 function filterTodayMods(m) {
   if (!m || state.mode === 'all') return m;
   const has = personInMode;
-  const evOk = (e) => e.people.some(has);
-  const meetings = m.meetings.filter(evOk);
+  const evOk = (e) => (e.people || []).some(has);
+  const meetings = (m.meetings || []).filter(evOk);
   const next = meetings.find((e) => ms(e.end) > Date.now()) || null;
   let brief = null;
+  const baseReply = m.needsReply || [];
+  const baseWaiting = m.waiting || [];
+  const baseDue = m.due || [];
   if (next) {
     const pid = next.people.find(has) || next.people[0];
     const notes = AG.data?.notes || [];
-    const threads = [...m.needsReply, ...m.waiting];
+    const threads = [...baseReply, ...baseWaiting];
     brief = {
       event: next,
       personId: pid,
       lastNote: pid ? notes.find((n) => n.people.includes(pid)) : undefined,
       lastThread: pid ? threads.filter((t) => t.people.includes(pid)).sort((x, y) => ms(y.lastAt) - ms(x.lastAt))[0] : undefined,
-      open: m.due.filter((f) => f.personId === pid),
+      open: baseDue.filter((f) => f.personId === pid),
     };
   }
   const after = m.after && evOk(m.after) ? m.after : null;
-  const needsReply = m.needsReply.filter((t) => t.people.some(has));
-  const waiting = m.waiting.filter((t) => t.people.some(has));
-  const due = m.due.filter((f) => has(f.personId));
-  const coming = m.coming.map((g) => ({ day: g.day, events: g.events.filter(evOk) })).filter((g) => g.events.length);
-  const trips = m.trips.filter((t) => t.people.some(has));
-  const reconnect = m.reconnect.filter((r) => has(r.id));
-  const notes = m.notes.filter((n) => n.people.some(has));
+  const needsReply = baseReply.filter((t) => t.people.some(has));
+  const waiting = baseWaiting.filter((t) => t.people.some(has));
+  const due = baseDue.filter((f) => has(f.personId));
+  const coming = (m.coming || []).map((g) => ({ day: g.day, events: (g.events || []).filter(evOk) })).filter((g) => g.events.length);
+  const trips = (m.trips || []).filter((t) => t.people.some(has));
+  const reconnect = (m.reconnect || []).filter((r) => has(r.id));
+  const notes = (m.notes || []).filter((n) => n.people.some(has));
   const lens = {};
   for (const f of due) lens[f.personId] = 'due';
   for (const t of needsReply) for (const id of t.people) if (has(id)) lens[id] = 'reply';
@@ -622,12 +627,12 @@ function casualPromptFor(p, kind) {
   if (p.doing && /pick up|drop off|school|soccer|doctor/i.test(p.doing)) return p.doing.replace(/\.$/, '');
   if (kind === 'family') {
     const opts = [`Pick up from ${name}`, `Call ${name}`, `Plan a visit with ${name}`, `Check in with ${name}`];
-    return opts[(p.id.length + Math.floor(since(p) / 14)) % opts.length];
+    return opts[((p.id || '').length + Math.floor(since(p) / 14)) % opts.length];
   }
   if (p.doing) return `Ask ${name} about ${p.doing.replace(/\.$/, '').toLowerCase()}`;
   const city = p.city ? p.city.split(',')[0].trim() : '';
   const opts = [`Grab coffee with ${name}`, `Plan something with ${name}`, `Check in with ${name}`, city ? `See ${name} in ${city}` : `Catch up with ${name}`];
-  return opts[(p.id.length + Math.floor(since(p) / 21)) % opts.length];
+  return opts[((p.id || '').length + Math.floor(since(p) / 21)) % opts.length];
 }
 function casualIdeaRows(kind) {
   const people = D.people.filter((p) => state.mode === 'all' || p.m === state.mode);
@@ -644,7 +649,7 @@ function casualIdeaRows(kind) {
 }
 function reconnectRows(rc, title, sub) {
   if (!rc.length) return '';
-  return `<div class="h4">${esc(title)}<span class="cnt">${esc(sub)}</span></div>${rc.map((r) => { const p = byId(r.id); return `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc(r.days >= 60 ? Math.round(r.days / 30) + ' months' : r.days + ' days')} since you last ${esc(KIND_VERB[r.kind])}</small></div><span class="pill${r.days > 120 ? ' warn' : ''}">${esc(ago(new Date(Date.now() - r.days * DAY).toISOString()))}</span></div>`; }).join('')}`;
+  return `<div class="h4">${esc(title)}<span class="cnt">${esc(sub)}</span></div>${rc.map((r) => { const p = byId(r.id); if (!p) return ''; return `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc(r.days >= 60 ? Math.round(r.days / 30) + ' months' : r.days + ' days')} since you last ${esc(KIND_VERB[r.kind] || 'talked')}</small></div><span class="pill${r.days > 120 ? ' warn' : ''}">${esc(ago(new Date(Date.now() - r.days * DAY).toISOString()))}</span></div>`; }).join('')}`;
 }
 function agendaModulesWork(m) {
   const d = AG.data, out = [];
@@ -735,7 +740,7 @@ function renderToday() {
    ${planned.length ? `<div class="h4">Your plans<span class="cnt">${planned.length}</span></div>${planned.slice(0, 5).map(planRow).join('')}` : ''}
    ${due.length ? `<div class="h4">Reach out<span class="cnt">Longest since you talked</span></div>${due.map((p) => `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc(p.doing || [p.role, p.company].filter(Boolean).join(' · ') || p.city || '')}</small></div><span class="pill${since(p) > 120 ? ' warn' : ''}">${esc(ago(p.last))}</span></div>`).join('')}` : ''}
    <div class="h4">Ask Sparkles</div>
-   <div class="tags">${CUR_IDEAS.map((x, i) => `<button class="tag" data-ideaq="${i}">${esc(x[1].replace(/\s+$/, '…'))}</button>`).join('')}</div>
+   <div class="tags">${(CUR_IDEAS || IDEAS).map((x, i) => (x && x[1] ? `<button class="tag" data-ideaq="${i}">${esc(String(x[1]).replace(/\s+$/, '…'))}</button>` : '')).join('')}</div>
    ${!D.ai ? `<p class="hint">Offline suggestions: Sparkles matches your words to people’s notes and interests.</p>` : ''}
    ${saved.length ? `<div class="h4">Your maps<span class="cnt">${saved.length}</span></div>${saved.slice(0, 8).map((s) => `<div class="row" data-openmap="${esc(s.id)}"><span class="globe">${esc(ICONS.includes(s.plans?.[0]?.ic) ? s.plans[0].ic : '◎')}</span><div><b>${esc(s.title)}</b><small>“${esc(s.prompt)}”</small></div></div>`).join('')}` : ''}
    ${recent.length ? `<div class="h4">Recently added</div>${recent.map((p) => `<div class="row" data-person="${esc(p.id)}" tabindex="0">${avatar(p)}<div><b>${esc(p.n)}</b><small>${esc([p.role, p.company].filter(Boolean).join(' · ') || 'No details yet')}</small></div><span class="when">${esc(p.city || 'No city')}</span></div>`).join('')}` : ''}`;
@@ -781,7 +786,7 @@ function renderPlans() {
    ${list.length ? `<div class="h4">Planned<span class="cnt">${list.length}</span></div>` + list.map(planRow).join('') : `<div class="empty"><div class="ei">${icon('plans', 26)}</div><h3>No plans yet</h3><p>Tell Sparkles what you want to do. It suggests small plans with people you know, and you mark the ones you’ll do.</p><button class="btn go" data-ideaq="3">Who should I catch up with?</button></div>`}`;
 }
 function circleOptions(sel, withNone = true) {
-  return (withNone ? `<option value=""${!sel ? ' selected' : ''}>No circle</option>` : '') + D.circles.map((c) => `<option value="${esc(c.id)}"${sel === c.id ? ' selected' : ''}>${esc(c.label)}</option>`).join('');
+  return (withNone ? `<option value=""${!sel ? ' selected' : ''}>No circle</option>` : '') + (D.circles || []).map((c) => `<option value="${esc(c.id)}"${sel === c.id ? ' selected' : ''}>${esc(c.label)}</option>`).join('');
 }
 function renderPeople() {
   if (state.edit) return renderEdit();
@@ -807,14 +812,14 @@ function renderPeople() {
    <p class="optin" style="margin-top:8px">Reads LinkedIn’s Connections.csv, or any CSV with a Name (or First Name and Last Name) column, plus optional City, Company, Title, Email, URL, Notes and Interests.</p>
    <div class="h4">Circles</div>
    <p class="optin">Group people your own way. Rename, recolor or add circles.</p>
-   ${D.circles.map((c, i) => `<div class="c-edit"><button class="c-dot" style="background:var(--c${c.color})" data-ccolor="${i}" aria-label="Change color of ${esc(c.label)}"></button><input data-clabel="${i}" value="${esc(c.label)}" maxlength="24" aria-label="Circle name"><button class="btn sm ghost" data-cdel="${i}">Remove</button></div>`).join('')}
+   ${(D.circles || []).map((c, i) => `<div class="c-edit"><button class="c-dot" style="background:var(--c${c.color})" data-ccolor="${i}" aria-label="Change color of ${esc(c.label)}"></button><input data-clabel="${i}" value="${esc(c.label)}" maxlength="24" aria-label="Circle name"><button class="btn sm ghost" data-cdel="${i}">Remove</button></div>`).join('')}
    <div class="btns">${D.circles.length < 12 ? `<button class="btn sm" data-act="addcircle">Add a circle</button>` : ''}</div>
    <div class="h4">Settings</div>
-   <div class="btns"><button class="btn sm" data-act="home">${icon('pin', 16)}Home: ${esc(home().city)}</button>${D.people.some(isSampleP) ? `<button class="btn sm" data-act="clearsample">Remove sample people</button>` : ''}${D.people.length ? `<button class="btn sm ghost" data-act="wipe">Remove everyone</button>` : ''}</div>
+   <div class="btns"><button class="btn sm" data-act="home">${icon('pin', 16)}Home: ${esc(home()?.city || 'Set home')}</button>${D.people.some(isSampleP) ? `<button class="btn sm" data-act="clearsample">Remove sample people</button>` : ''}${D.people.length ? `<button class="btn sm ghost" data-act="wipe">Remove everyone</button>` : ''}</div>
    ${state.confirm === 'wipe' ? `<div class="confirm">Remove all ${D.people.length} people? Your maps stay. This can’t be undone.<div class="btns"><button class="btn sm danger" data-act="wipe-yes">Remove everyone</button><button class="btn sm" data-cancel>Cancel</button></div></div>` : ''}
    ${state.confirm === 'home' ? `<form class="form" id="homeForm"><label>Home city<input id="homeCity" list="cityList" value="${esc(home().city)}" autocomplete="off" required></label><div class="btns" style="margin-top:0"><button class="btn sm go" type="submit">Save</button><button class="btn sm" type="button" data-cancel>Cancel</button></div></form>` : ''}`;
   const inp = $('pq'); inp?.addEventListener('input', () => { state.pq = inp.value; state.plimit = 60; const pos = inp.selectionStart; renderPanel(true); const n = $('pq'); n.focus(); n.setSelectionRange(pos, pos); });
-  $('impCircle').addEventListener('change', (e) => (state.importCircle = e.target.value));
+  $('impCircle')?.addEventListener('change', (e) => (state.importCircle = e.target.value));
 }
 function renderEdit() {
   const p = state.edit.id ? byId(state.edit.id) : null, v = p || { m: state.mode !== 'all' ? state.mode : '', ...(state.edit.prefill || {}) };
