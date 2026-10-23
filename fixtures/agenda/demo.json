@@ -112,7 +112,7 @@
   "threads": [
    {
     "id": "demo-th-1",
-    "subject": "Intro to Ana?",
+    "subject": "Intro to Sam?",
     "people": [
      "sample-kai"
     ],
@@ -123,9 +123,9 @@
    },
    {
     "id": "demo-th-2",
-    "subject": "Quick question about ocean",
+    "subject": "Quick question about books",
     "people": [
-     "sample-olivia"
+     "sample-will"
     ],
     "lastAt": "2026-10-21T10:45:00.000Z",
     "lastInboundAt": "2026-10-21T10:45:00.000Z",
@@ -136,7 +136,7 @@
     "id": "demo-th-3",
     "subject": "Photos from the weekend",
     "people": [
-     "sample-sam"
+     "sample-olivia"
     ],
     "lastAt": "2026-10-17T16:45:00.000Z",
     "lastInboundAt": "2026-10-17T16:45:00.000Z",
@@ -145,9 +145,9 @@
    },
    {
     "id": "demo-th-4",
-    "subject": "Re: climate next steps",
+    "subject": "Re: ai next steps",
     "people": [
-     "sample-ana"
+     "sample-sam"
     ],
     "lastAt": "2026-10-16T13:45:00.000Z",
     "lastOutboundAt": "2026-10-16T13:45:00.000Z",
@@ -158,7 +158,7 @@
     "id": "demo-th-5",
     "subject": "Following up on our chat",
     "people": [
-     "sample-ada"
+     "sample-ana"
     ],
     "lastAt": "2026-10-13T16:45:00.000Z",
     "lastOutboundAt": "2026-10-13T16:45:00.000Z",
@@ -214,8 +214,8 @@
    },
    {
     "id": "demo-fu-2",
-    "personId": "sample-mira",
-    "title": "Send Mira that fundraising recommendation",
+    "personId": "sample-ada",
+    "title": "Send Ada that fintech recommendation",
     "due": "2026-10-23T00:00:00.000Z",
     "status": "open",
     "origin": "manual",

@@ -590,13 +590,17 @@ function threadRow(t, kind) {
    <div><span class="th-h">${head}</span><small class="subj">${icon('mail', 13)}${esc(t.subject)}</small>
    <div class="ra">${id ? `<button class="lnk" data-draft="${kind === 'reply' ? 'reply' : 'nudge'}|${esc(id)}|${esc(t.id)}">${kind === 'reply' ? 'Draft a reply' : 'Nudge'}</button>` : ''}${kind === 'reply' ? `<button class="lnk" data-thact="done|${esc(t.id)}">Done</button><button class="lnk" data-thact="snoozed|${esc(t.id)}">Snooze</button>` : `<button class="lnk" data-thact="dismissed|${esc(t.id)}">Dismiss</button>`}</div>${draftBox('t-' + t.id)}</div></div>`;
 }
+const DEAL_CIRCLES = new Set(['founders', 'investors']);
+const CREATIVE_CIRCLES = new Set(['filmmakers']);
+const BUILD_CIRCLES = new Set(['engineers']);
 function circleKind() {
   if (state.mode === 'all') return 'all';
-  if (state.mode === 'work' || state.mode === 'friends' || state.mode === 'family') return state.mode;
+  if (DEAL_CIRCLES.has(state.mode) || CREATIVE_CIRCLES.has(state.mode) || BUILD_CIRCLES.has(state.mode)) return state.mode;
   const label = MODES[state.mode]?.l?.toLowerCase();
-  if (label === 'work') return 'work';
-  if (label === 'friends' || label === 'friend') return 'friends';
-  if (label === 'family') return 'family';
+  if (label === 'founders' || label === 'founder') return 'founders';
+  if (label === 'filmmakers' || label === 'filmmaker') return 'filmmakers';
+  if (label === 'investors' || label === 'investor') return 'investors';
+  if (label === 'engineers' || label === 'engineer') return 'engineers';
   return 'other';
 }
 function personInMode(id) {
@@ -622,9 +626,10 @@ function mapInMode(s) {
 }
 function ideasForMode() {
   const k = circleKind();
-  if (k === 'work') return [['Prep', 'Who should I prep for '], ['Follow up', 'Who am I overdue emailing about '], ['Intro', 'Who at work should meet '], ['Help', 'Who could help me with '], ['Travel', 'Work trip to ']];
-  if (k === 'friends') return [['Coffee', 'Who should I grab coffee with '], ['Plan', 'Who should I plan something fun with '], ['Catch up', 'Which friends should I check in with '], ['Visit', 'Friends to see in '], ['Group', 'Who should I invite to ']];
-  if (k === 'family') return [['Call', 'Which family should I call '], ['Visit', 'When should I visit '], ['Errand', 'Pick up from '], ['Dinner', 'Plan dinner with '], ['Help', 'Who in the family needs ']];
+  if (k === 'founders') return [['Prep', 'Who should I prep for '], ['Follow up', 'Which founders am I overdue updating on '], ['Intro', 'Which founders should meet '], ['Raise', 'Who could advise me on '], ['Trip', 'Founders to visit in ']];
+  if (k === 'investors') return [['Update', 'Which investors need an update on '], ['Intro', 'Who could intro me to '], ['Follow up', 'Who am I overdue emailing about '], ['Prep', 'Who should I prep for '], ['Raise', 'Who invests in ']];
+  if (k === 'filmmakers') return [['Project', 'Who could collaborate on '], ['Crew', 'Who should I bring onto '], ['Festival', 'Filmmakers to meet in '], ['Feedback', 'Who could review '], ['Shoot', 'Who should I shoot with in ']];
+  if (k === 'engineers') return [['Build', 'Who could help me build '], ['Debug', 'Who knows '], ['Ship', 'Who should I ship this with '], ['Hire', 'Engineers who know '], ['Stack', 'Who has experience with ']];
   return IDEAS;
 }
 function filterTodayMods(m) {
@@ -665,13 +670,26 @@ function filterTodayMods(m) {
 }
 function casualPromptFor(p, kind) {
   const name = fn(p);
-  if (p.doing && /pick up|drop off|school|soccer|doctor/i.test(p.doing)) return p.doing.replace(/\.$/, '');
-  if (kind === 'family') {
-    const opts = [`Pick up from ${name}`, `Call ${name}`, `Plan a visit with ${name}`, `Check in with ${name}`];
-    return opts[((p.id || '').length + Math.floor(since(p) / 14)) % opts.length];
+  const city = p.city ? p.city.split(',')[0].trim() : '';
+  if (kind === 'filmmakers') {
+    const opts = [
+      p.doing ? `Collaborate with ${name} on ${p.doing.replace(/\.$/, '').toLowerCase()}` : `Ask ${name} about their latest project`,
+      `Get feedback from ${name} on a cut`,
+      city ? `Shoot something with ${name} in ${city}` : `Plan a shoot with ${name}`,
+      `Introduce ${name} to a collaborator`,
+    ];
+    return opts[((p.id || '').length + Math.floor(since(p) / 17)) % opts.length];
+  }
+  if (kind === 'engineers') {
+    const opts = [
+      p.doing ? `Ask ${name} how they’d build ${p.doing.replace(/\.$/, '').toLowerCase()}` : `Pair with ${name} on a technical problem`,
+      `Get ${name}’s take on an architecture question`,
+      `Ship a small prototype with ${name}`,
+      p.tags?.[0] ? `Find who knows ${p.tags[0]} like ${name}` : `Ping ${name} for a code review`,
+    ];
+    return opts[((p.id || '').length + Math.floor(since(p) / 19)) % opts.length];
   }
   if (p.doing) return `Ask ${name} about ${p.doing.replace(/\.$/, '').toLowerCase()}`;
-  const city = p.city ? p.city.split(',')[0].trim() : '';
   const opts = [`Grab coffee with ${name}`, `Plan something with ${name}`, `Check in with ${name}`, city ? `See ${name} in ${city}` : `Catch up with ${name}`];
   return opts[((p.id || '').length + Math.floor(since(p) / 21)) % opts.length];
 }
@@ -708,13 +726,15 @@ function agendaModulesWork(m) {
 function agendaModulesPersonal(m, kind) {
   const out = [];
   const ideas = casualIdeaRows(kind);
-  if (ideas) out.push(`<div class="h4" id="ag-ideas">${kind === 'family' ? 'Family this week' : 'Ideas with friends'}<span class="cnt">Small next steps</span></div>${ideas}`);
+  const ideasTitle = kind === 'filmmakers' ? 'Projects & collaborators' : kind === 'engineers' ? 'Build & technical help' : 'Ideas';
+  if (ideas) out.push(`<div class="h4" id="ag-ideas">${esc(ideasTitle)}<span class="cnt">Small next steps</span></div>${ideas}`);
   if (m.meetings.length) {
     const left = m.meetings.filter((e) => ms(e.end) > Date.now()).length;
     out.push(`<div class="h4" id="ag-meet">On the calendar<span class="cnt">${left ? left + ' to go' : 'All done'}</span></div><div class="tl">${m.meetings.map((e) => evRow(e, { brief: m.next && e.id === m.next.id }) + (m.brief && e.id === m.brief.event.id ? briefCard(m.brief) : '')).join('')}</div>`);
   }
   if (m.due.length) out.push(`<div class="h4" id="ag-due">Don’t forget<span class="cnt">${m.due.length}</span></div>${m.due.map((f) => fuRow(f)).join('')}`);
-  out.push(reconnectRows(m.reconnect.slice(0, 5), kind === 'family' ? 'Check in' : 'Catch up', 'Past your usual rhythm'));
+  const reconnectTitle = kind === 'filmmakers' ? 'Collaborators to ping' : kind === 'engineers' ? 'Engineers to ping' : 'Catch up';
+  out.push(reconnectRows(m.reconnect.slice(0, 5), reconnectTitle, 'Past your usual rhythm'));
   return out.join('');
 }
 function agendaModulesShared(m) {
@@ -727,7 +747,7 @@ function agendaModulesShared(m) {
     }).join('') + m.coming.map((g) => `<div class="dayh">${esc(dayName(g.day))}</div>${g.events.map((e) => evRow(e, { compact: true })).join('')}`).join(''));
   }
   const k = circleKind();
-  if (k === 'all' || k === 'work') {
+  if (k === 'all' || DEAL_CIRCLES.has(k)) {
     const rc = m.reconnect.slice(0, 5);
     out.push(reconnectRows(rc, 'Reconnect', 'Past your usual rhythm'));
   }
@@ -739,7 +759,7 @@ function agendaModulesShared(m) {
 function agendaModules(m) {
   const fm = filterTodayMods(m);
   const k = circleKind();
-  if (k === 'friends' || k === 'family') return agendaModulesPersonal(fm, k) + agendaModulesShared(fm);
+  if (CREATIVE_CIRCLES.has(k) || BUILD_CIRCLES.has(k)) return agendaModulesPersonal(fm, k) + agendaModulesShared(fm);
   return agendaModulesWork(fm) + agendaModulesShared(fm);
 }
 function todayTiles(m) {
@@ -749,9 +769,10 @@ function todayTiles(m) {
   const planned = allPlans().filter((p) => p.planned && planInMode(p));
   const cities = new Set(ppl.filter(placed).map((p) => p.ck)).size;
   if (fm && (AG.data.demo || AG.data.connected)) {
-    if (k === 'friends' || k === 'family') {
+    if (CREATIVE_CIRCLES.has(k) || BUILD_CIRCLES.has(k)) {
       const catchUp = fm.reconnect.length || ppl.filter((p) => since(p) >= 30 && since(p) < Infinity).length;
-      return `<div class="tiles"><button class="tile" data-jump="ag-ideas"><b>${Math.min(ppl.length, 6)}</b><small>${k === 'family' ? 'Family ideas' : 'Friend ideas'}</small></button><button class="tile" data-jump="ag-meet"><b>${fm.meetings.length}</b><small>On the calendar</small></button><button class="tile" data-jump="ag-due"><b>${catchUp}</b><small>Catch up</small></button></div>`;
+      const ideasLbl = k === 'filmmakers' ? 'Project ideas' : 'Build ideas';
+      return `<div class="tiles"><button class="tile" data-jump="ag-ideas"><b>${Math.min(ppl.length, 6)}</b><small>${ideasLbl}</small></button><button class="tile" data-jump="ag-meet"><b>${fm.meetings.length}</b><small>On the calendar</small></button><button class="tile" data-jump="ag-due"><b>${catchUp}</b><small>Catch up</small></button></div>`;
     }
     return `<div class="tiles"><button class="tile" data-jump="ag-meet"><b>${fm.meetings.length}</b><small>Meetings today</small></button><button class="tile" data-jump="ag-reply"><b>${fm.needsReply.length}</b><small>Need a reply</small></button><button class="tile${fm.due.some((f) => f.due && ms(f.due) < sod()) ? ' warn' : ''}" data-jump="ag-due"><b>${fm.due.length}</b><small>Follow-ups due</small></button></div>`;
   }

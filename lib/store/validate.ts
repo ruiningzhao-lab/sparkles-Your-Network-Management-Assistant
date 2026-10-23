@@ -1,9 +1,10 @@
 import type { Circle, FollowUp, MapDoc, Note, Person, Place } from './types';
 
 export const DEFAULT_CIRCLES: Circle[] = [
-  { id: 'work', label: 'Work', color: 0 },
-  { id: 'friends', label: 'Friends', color: 1 },
-  { id: 'family', label: 'Family', color: 2 },
+  { id: 'founders', label: 'Founders', color: 0 },
+  { id: 'filmmakers', label: 'Filmmakers', color: 1 },
+  { id: 'investors', label: 'Investors', color: 2 },
+  { id: 'engineers', label: 'Engineers', color: 3 },
 ];
 const slug = (v: unknown) => (typeof v === 'string' && /^[a-z0-9_-]{1,24}$/.test(v) ? v : '');
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
